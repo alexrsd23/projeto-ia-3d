@@ -29,3 +29,10 @@ export interface SimulationEvent {
   message: string;
   timestamp: string;
 }
+
+// Adicione isto junto às interfaces existentes
+export interface RouteAnalytics {
+  bestRoutes: { origin: string; steps: number; agent: string; actions: string[] }[];
+  leaderboard: { name: string; successes: number; bestTime: number }[];
+  stats: { origin: string; attempts: number; successes: number }[];
+}

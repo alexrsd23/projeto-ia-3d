@@ -3,9 +3,10 @@ import Dashboard from './components/layout/Dashboard';
 import Viewport3D from './components/layout/Viewport3D';
 import EventLogPanel from './components/ui/EventLogPanel';
 import NeuralNetworkVisualizer from './components/ui/NeuralNetworkVisualizer';
-import type { Entity, TileData, SimulationEvent } from './types';
+import type { Entity, TileData, SimulationEvent, RouteAnalytics } from './types';
 import './App.css';
 import { CHARACTER_SETTINGS } from './config/characterSettings';
+import TelemetryPanel from './components/ui/TelemetryPanel';
 
 export default function App() {
   const [isDay, setIsDay] = useState(true);
@@ -23,6 +24,8 @@ export default function App() {
   const [routeBounds, setRouteBounds] = useState({ xMin: -24, xMax: -16, zMin: 16, zMax: 24 });
 
   const isProcessingTick = useRef(false);
+
+  const [analytics, setAnalytics] = useState<RouteAnalytics | null>(null);
 
   const [sunPos, setSunPos] = useState<[number, number, number]>(() => {
     const saved = localStorage.getItem('sunPos');
@@ -113,6 +116,7 @@ export default function App() {
           const responseTick = await fetch('http://127.0.0.1:8000/api/tick', { method: 'POST' });
           if (responseTick.ok) {
             const tickData = await responseTick.json();
+            if (tickData.analytics) setAnalytics(tickData.analytics);
             if (tickData.heatmap) setHeatmap(tickData.heatmap);
             if (tickData.lastAction !== undefined) setLastNNAction(tickData.lastAction);
             if (tickData.events && tickData.events.length > 0) {
@@ -267,7 +271,7 @@ export default function App() {
         />
       </div>
 
-      <EventLogPanel events={events} />
+      <TelemetryPanel events={events} analytics={analytics} />
     </div>
   );
 }
