@@ -10,7 +10,8 @@ import DarknessOverlay from '../3d/environment/DarknessOverlay';
 import Ground from '../3d/environment/ground/Ground';
 import HeatmapSystem from '../3d/environment/ground/HeatmapSystem';
 import CactusObstacle from '../3d/environment/CactusObstacle';
-import SpawnAreaVisualizer from '../3d/environment/SpawnAreaVisualizer'; // O Novo Import!
+import SpawnAreaVisualizer from '../3d/environment/SpawnAreaVisualizer'; // O seu quadradinho de teste!
+import RouteVisualizerSystem from '../3d/environment/RouteVisualizerSystem'; // A nova inteligência visual!
 import type { Entity, TileData } from '../../types';
 
 interface RouteBounds {
@@ -32,16 +33,15 @@ interface Viewport3DProps {
   selectedTileId: string | null;
   onSelectTile: (id: string) => void;
   heatmap: {gridX: number, gridZ: number, visits: number}[]; 
-  
-  // Nossas novas props
   isRouteTestingMode: boolean;
   routeBounds: RouteBounds;
+  analytics: any; // Recebe a Mente Colmeia
 }
 
 export default function Viewport3D({
   entities, selectedEntityId, onSelectEntity, onDeselect, onMoveEntity,
   sunPos, moonPos, onMoveSun, onMoveMoon, isDay, tiles, selectedTileId, onSelectTile, heatmap,
-  isRouteTestingMode, routeBounds
+  isRouteTestingMode, routeBounds, analytics
 }: Viewport3DProps) {
 
   const [isDragging, setIsDragging] = useState(false);
@@ -64,9 +64,16 @@ export default function Viewport3D({
 
         <Ground tiles={tiles} selectedTileId={selectedTileId} onSelectTile={onSelectTile} />
         
+        {/* O Mapa de Calor Clássico */}
         <HeatmapSystem data={heatmap} maxVisits={maxVisits} />
 
-        {/* Se o modo estiver ON, pinta a área no chão */}
+        {/* A NOVA Camada da Mente Colmeia (Azul e Vermelho) */}
+        <RouteVisualizerSystem 
+          consolidatedPaths={analytics?.consolidatedPaths || []} 
+          lethalZones={analytics?.lethalZones || []} 
+        />
+
+        {/* RESTAURADO: O Quadradinho do Modo de Teste de Rotas */}
         {isRouteTestingMode && <SpawnAreaVisualizer bounds={routeBounds} />}
 
         {entities.map((entity) => {

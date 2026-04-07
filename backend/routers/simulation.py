@@ -59,7 +59,7 @@ def simulate_tick():
                 # ===============================================================
                 # NOVO: REGISTA O PASSO DADO (Para criar o histórico da rota)
                 # ===============================================================
-                ai_controller.analytics.record_step(char['id'], action)
+                ai_controller.analytics.record_step(char['id'], action, new_x, new_z)
 
                 is_out_of_bounds = new_x < -24 or new_x > 24 or new_z < -24 or new_z > 24
                 hit_cactus = any(math.hypot(new_x - c['x'], new_z - c['z']) < 1.0 for c in cactuses)
@@ -141,7 +141,7 @@ def simulate_tick():
             "heatmap": safe_heatmap,
             "events": ai_controller.logger.flush(),
             "lastAction": int(last_action_taken),
-            "analytics": ai_controller.analytics.get_telemetry_data() 
+            "analytics": ai_controller.analytics.get_telemetry_data(ai_controller.shared_knowledge) 
         }
     except Exception as e:
         print("\n🚨 ERRO CRÍTICO NO TICK 🚨")

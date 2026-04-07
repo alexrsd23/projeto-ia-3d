@@ -268,6 +268,7 @@ export default function App() {
           heatmap={heatmap}
           isRouteTestingMode={isRouteTestingMode}
           routeBounds={routeBounds}
+          analytics={analytics}
         />
       </div>
 

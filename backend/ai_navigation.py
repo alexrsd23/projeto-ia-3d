@@ -4,14 +4,39 @@ import numpy as np
 
 class SharedKnowledgeSystem:
     def __init__(self):
-        self.lethal_zones = set()
+        self.lethal_zones = {} # (x, z) -> {'deaths': int, 'cooldown_until': int}
+        self.current_tick = 0
+
+    def tick(self):
+        self.current_tick += 1
 
     def mark_danger(self, x, z):
-        # Assegura precisão das coordenadas perigosas
-        self.lethal_zones.add((float(x), float(z)))
+        coord = (float(x), float(z))
+        if coord not in self.lethal_zones:
+            # 1ª morte: 150 ticks de bloqueio absoluto (~3 ciclos)
+            self.lethal_zones[coord] = {'deaths': 1, 'cooldown_until': self.current_tick + 150} 
+        else:
+            self.lethal_zones[coord]['deaths'] += 1
+            deaths = self.lethal_zones[coord]['deaths']
+            # Dobra o tempo de bloqueio a cada morte recorrente: 150, 300, 600...
+            cooldown = 150 * (2 ** (deaths - 1))
+            self.lethal_zones[coord]['cooldown_until'] = self.current_tick + cooldown
 
     def is_dangerous(self, x, z):
-        return (float(x), float(z)) in self.lethal_zones
+        coord = (float(x), float(z))
+        if coord in self.lethal_zones:
+            # Se ainda estiver dentro do tempo de penalidade (cooldown), o perigo está ativo!
+            if self.current_tick < self.lethal_zones[coord]['cooldown_until']:
+                return True
+        return False
+        
+    def mark_safe(self, x, z):
+        coord = (float(x), float(z))
+        if coord in self.lethal_zones:
+            # Se um agente passou por aqui sem morrer, reduzimos a penalidade
+            self.lethal_zones[coord]['deaths'] = max(0, self.lethal_zones[coord]['deaths'] - 1)
+            if self.lethal_zones[coord]['deaths'] == 0:
+                del self.lethal_zones[coord]
 
 class EventLogSystem:
     def __init__(self):
@@ -32,9 +57,6 @@ class EventLogSystem:
         self.events.clear()
         return res
 
-# ==========================================
-# EVOLUÇÃO: AMBIENTES DINÂMICOS E CONFIANÇA
-# ==========================================
 class RouteAnalyticsSystem:
     def __init__(self, logger):
         self.logger = logger
@@ -49,10 +71,14 @@ class RouteAnalyticsSystem:
         mode = 'explore'
         planned_route = []
         
-        # Dinamismo: Usa a confiança da rota para decidir se faz exploit
         if origin in self.best_routes:
             confidence = self.best_routes[origin].get('confidence', 0.85)
-            if random.random() < confidence:
+            
+            # MATEMÁTICA DE SATURAÇÃO (A SUA IDEIA):
+            # Se a confiança da rota chegou a 95%, o agente confia cegamente (100% Determinístico)
+            eval_confidence = 1.0 if confidence >= 0.95 else confidence
+            
+            if random.random() < eval_confidence:
                 mode = 'exploit'
                 planned_route = self.best_routes[origin]['raw_actions']
             
@@ -62,6 +88,7 @@ class RouteAnalyticsSystem:
                 'steps': 0,
                 'actions': [],
                 'raw_actions': [],
+                'path_coords': [origin], # Guarda todo o caminho físico
                 'mode': mode,
                 'planned_route': planned_route
             }
@@ -79,16 +106,17 @@ class RouteAnalyticsSystem:
             return None
 
     def abort_exploit(self, agent_id):
-        """Força o agente a voltar a explorar se a rota estiver corrompida"""
         if agent_id in self.active_episodes:
             self.active_episodes[agent_id]['mode'] = 'explore'
 
-    def record_step(self, agent_id, action_idx):
+    # Adicionámos new_x e new_z para desenhar a linha azul depois
+    def record_step(self, agent_id, action_idx, new_x, new_z):
         if agent_id in self.active_episodes:
             actions_map = ["CIMA", "BAIXO", "ESQUERDA", "DIREITA"]
             self.active_episodes[agent_id]['steps'] += 1
             self.active_episodes[agent_id]['actions'].append(actions_map[action_idx])
             self.active_episodes[agent_id]['raw_actions'].append(int(action_idx))
+            self.active_episodes[agent_id]['path_coords'].append((float(new_x), float(new_z)))
 
     def finalize_episode(self, agent_id, success, agent_name):
         if agent_id not in self.active_episodes: return
@@ -111,7 +139,6 @@ class RouteAnalyticsSystem:
             
             score = ep['steps'] 
             
-            # Se encontrou uma rota melhor (ou a primeira)
             if origin not in self.best_routes or score < self.best_routes[origin]['score']:
                 self.best_routes[origin] = {
                     'score': score,
@@ -119,47 +146,62 @@ class RouteAnalyticsSystem:
                     'agent_name': agent_name,
                     'actions': ep['actions'],
                     'raw_actions': ep['raw_actions'],
-                    'confidence': 0.85, # Alta confiança inicial
+                    'path_coords': ep['path_coords'],
+                    'confidence': 0.85, 
                     'fails': 0
                 }
             else:
-                # Se fez a mesma rota com sucesso, consolida a confiança
                 if self.best_routes[origin]['raw_actions'] == ep['raw_actions']:
-                    self.best_routes[origin]['confidence'] = min(0.95, self.best_routes[origin].get('confidence', 0.85) + 0.05)
+                    # Aumenta até bater no teto de 100% de confiança
+                    self.best_routes[origin]['confidence'] = min(1.0, self.best_routes[origin].get('confidence', 0.85) + 0.05)
                     self.best_routes[origin]['fails'] = 0
         else:
-            # PENALIZAÇÃO E INVALIDAÇÃO DE ROTA (Ambiente Dinâmico)
             if ep['mode'] == 'exploit' and origin in self.best_routes:
                 self.best_routes[origin]['fails'] = self.best_routes[origin].get('fails', 0) + 1
                 
-                # A confiança despenca com cada morte (menos agentes vão tentar)
-                self.best_routes[origin]['confidence'] = max(0.10, self.best_routes[origin].get('confidence', 0.85) - 0.25)
+                # PENALIZAÇÃO AGRESSIVA: Cai 30% a cada morte. Apenas 2 falhas destroem a rota.
+                self.best_routes[origin]['confidence'] -= 0.30
                 
-                # Após 3 mortes na mesma rota "perfeita", assume-se que o ambiente mudou
-                if self.best_routes[origin]['fails'] >= 3:
-                    self.logger.log("WARNING", f"🔄 Rota de X:{origin[0]} Z:{origin[1]} INVALIDADA por bloqueios! Área entrou em Reexploração.")
-                    del self.best_routes[origin] # Apaga a rota da memória
+                if self.best_routes[origin]['fails'] >= 2 or self.best_routes[origin]['confidence'] < 0.30:
+                    self.logger.log("WARNING", f"🔄 Rota de X:{origin[0]} Z:{origin[1]} INVALIDADA (Ambiente Dinâmico mudou).")
+                    del self.best_routes[origin]
 
         del self.active_episodes[agent_id]
 
-    def get_telemetry_data(self):
+    def get_telemetry_data(self, shared_knowledge):
+        # Mapeia APENAS A ROTA GLOBAL MAIS RÁPIDA (Filtra a aranha de linhas azuis)
+        consolidated_paths = []
+        best_global_score = float('inf')
+        best_global_path = []
+        
+        for k, v in self.best_routes.items():
+            if v.get('confidence', 0) >= 0.90:
+                if v['score'] < best_global_score:
+                    best_global_score = v['score']
+                    best_global_path = v['path_coords']
+                    
+        if best_global_path:
+            consolidated_paths.extend([{"x": p[0], "z": p[1]} for p in best_global_path])
+            
+        # Envia para a UI apenas as zonas que estão no período de Cooldown (Perigo Ativo)
+        lethal_zones = [{"x": p[0], "z": p[1]} for p in shared_knowledge.lethal_zones.keys() if shared_knowledge.is_dangerous(p[0], p[1])]
+
         return {
             "bestRoutes": [{"origin": f"X:{k[0]} Z:{k[1]}", "steps": v['steps'], "agent": v['agent_name'], "actions": v['actions'][:4] + ['...'] if len(v['actions'])>4 else v['actions']} for k, v in self.best_routes.items()],
             "leaderboard": [{"name": k, "successes": v['successes'], "bestTime": v['best_time']} for k, v in sorted(self.leaderboard.items(), key=lambda item: item[1]['successes'], reverse=True)[:5]],
-            "stats": [{"origin": f"X:{k[0]} Z:{k[1]}", "attempts": v['attempts'], "successes": v['successes']} for k, v in self.origin_stats.items()]
+            "stats": [{"origin": f"X:{k[0]} Z:{k[1]}", "attempts": v['attempts'], "successes": v['successes']} for k, v in self.origin_stats.items()],
+            "consolidatedPaths": consolidated_paths,
+            "lethalZones": lethal_zones
         }
 
+# (O resto das classes no arquivo ai_navigation.py continua perfeitamente igual)
 class EnvironmentSensor:
     @staticmethod
     def get_state(agent_pos, target_pos, shared_knowledge):
-        ax, az = agent_pos
-        tx, tz = target_pos
-        dist_x = tx - ax
-        dist_z = tz - az
-        norm = math.hypot(dist_x, dist_z)
-        dir_x = dist_x / norm if norm > 0 else 0
-        dir_z = dist_z / norm if norm > 0 else 0
-        return np.array([dir_x, dir_z])
+        dx = round((target_pos[0] - agent_pos[0]) / 2)
+        dz = round((target_pos[1] - agent_pos[1]) / 2)
+        
+        return np.array([dx, dz])
 
 class RewardSystem:
     @staticmethod
@@ -204,25 +246,23 @@ class AgentController:
         self.brain = NeuralNetworkPlaceholder()
         self.shared_knowledge = SharedKnowledgeSystem()
         self.logger = EventLogSystem()
-        # O Logger agora é passado para o Analytics reportar a Invalidação de Rotas
         self.analytics = RouteAnalyticsSystem(self.logger)
         
     def process_tick(self, agent_id, agent_pos, target_pos):
-        state = EnvironmentSensor.get_state(agent_pos, target_pos, self.shared_knowledge)
+        self.shared_knowledge.tick() 
         
+        state = EnvironmentSensor.get_state(agent_pos, target_pos, self.shared_knowledge)
         planned_action = self.analytics.get_planned_action(agent_id)
         
         if planned_action is not None:
-            # O "SENTIDO-ARANHA": Olha para onde vai pisar ANTES de o fazer
             moves = [(0, -2), (0, 2), (-2, 0), (2, 0)] 
             dx, dz = moves[planned_action]
             next_x = agent_pos[0] + dx
             next_z = agent_pos[1] + dz
             
-            # Se alguém morreu ali antes (Conhecimento Compartilhado), aborta o Exploit!
             if self.shared_knowledge.is_dangerous(next_x, next_z):
                 self.analytics.abort_exploit(agent_id)
-                action_idx = self.brain.get_action(state) # Força improvisação
+                action_idx = self.brain.get_action(state) 
             else:
                 action_idx = planned_action
         else:
@@ -230,5 +270,33 @@ class AgentController:
         
         moves = [(0, -2), (0, 2), (-2, 0), (2, 0)] 
         dx, dz = moves[action_idx]
+        next_x, next_z = agent_pos[0] + dx, agent_pos[1] + dz
         
-        return agent_pos[0] + dx, agent_pos[1] + dz, int(action_idx), state
+        # BLINDAGEM INTELIGENTE
+        if self.shared_knowledge.is_dangerous(next_x, next_z):
+            safe_actions = []
+            for i, (mx, mz) in enumerate(moves):
+                if not self.shared_knowledge.is_dangerous(agent_pos[0] + mx, agent_pos[1] + mz):
+                    safe_actions.append(i)
+            
+            if safe_actions:
+                # O agente não entra mais em pânico aleatório! 
+                # Ele pergunta à Rede Neural qual é o *melhor* caminho seguro.
+                best_q = -float('inf')
+                action_idx = safe_actions[0]
+                state_key = tuple(np.round(state, 1))
+                q_values = self.brain.q_table.get(state_key, [0.0, 0.0, 0.0, 0.0])
+                
+                for a in safe_actions:
+                    if q_values[a] > best_q:
+                        best_q = q_values[a]
+                        action_idx = a
+                        
+                dx, dz = moves[action_idx]
+        
+        final_x = agent_pos[0] + dx
+        final_z = agent_pos[1] + dz
+        
+        self.shared_knowledge.mark_safe(final_x, final_z)
+        
+        return final_x, final_z, int(action_idx), state
