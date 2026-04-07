@@ -1,5 +1,6 @@
-import { useRef, useState, useMemo } from 'react';
+import { useRef, useState, useMemo, useEffect } from 'react';
 import { Html } from '@react-three/drei';
+import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 
 interface CharacterProps {
@@ -16,24 +17,40 @@ export default function Character({ id, position, name, isSelected, onClick, onM
   const meshRef = useRef<THREE.Mesh>(null);
   const [dragging, setDragging] = useState(false);
 
-  // Cria um "chão" invisível matemático na altura exata do boneco
   const dragPlane = useMemo(() => new THREE.Plane(new THREE.Vector3(0, 1, 0), -position[1]), [position[1]]);
+  
+  // Guardamos a posição desejada para onde o boneco deve deslizar
+  const targetPos = useMemo(() => new THREE.Vector3(...position), [position]);
+
+  // Coloca o boneco na posição inicial exata ao nascer
+  useEffect(() => {
+    if (meshRef.current) {
+      meshRef.current.position.set(...position);
+    }
+  }, []);
+
+  // RENDER LOOP (60 FPS): Interpolação suave (Lerp) desacoplada da lógica!
+  useFrame((state, delta) => {
+    if (!dragging && meshRef.current) {
+      // O fator '8' define a velocidade do deslize. Quanto maior, mais rápido ele tenta alcançar o alvo.
+      meshRef.current.position.lerp(targetPos, 8 * delta);
+    }
+  });
 
   const handlePointerDown = (e: any) => {
     e.stopPropagation();
     onClick(id);
     setDragging(true);
-    setIsDragging(true); // Trava a câmera global
-    (e.target as any).setPointerCapture(e.pointerId); // Prende o mouse ao objeto
+    setIsDragging(true); 
+    (e.target as any).setPointerCapture(e.pointerId); 
   };
 
   const handlePointerUp = (e: any) => {
     e.stopPropagation();
     setDragging(false);
-    setIsDragging(false); // Libera a câmera
+    setIsDragging(false); 
     (e.target as any).releasePointerCapture(e.pointerId);
 
-    // Salva a posição final no Neo4j
     if (meshRef.current) {
       onMove(id, [meshRef.current.position.x, position[1], meshRef.current.position.z]);
     }
@@ -45,10 +62,8 @@ export default function Character({ id, position, name, isSelected, onClick, onM
       const intersectPoint = new THREE.Vector3();
       const hit = e.ray.intersectPlane(dragPlane, intersectPoint);
       if (hit) {
-        // CLAMP: Impede que o X e o Z passem de 24.5 (desconta 0.5 do raio do boneco)
         const clampedX = Math.max(-24.5, Math.min(24.5, intersectPoint.x));
         const clampedZ = Math.max(-24.5, Math.min(24.5, intersectPoint.z));
-        
         meshRef.current.position.set(clampedX, position[1], clampedZ);
       }
     }
@@ -57,16 +72,15 @@ export default function Character({ id, position, name, isSelected, onClick, onM
   return (
     <mesh
       ref={meshRef}
-      position={position}
+      // NOTA: Removemos a propriedade "position={position}" daqui para que o useFrame assuma o controle visual!
       castShadow
       receiveShadow
       onPointerDown={handlePointerDown}
       onPointerUp={handlePointerUp}
       onPointerMove={handlePointerMove}
-      scale={dragging ? 1.1 : 1} // Efeito visual de "pegou o objeto"
+      scale={dragging ? 1.1 : 1}
     >
       <cylinderGeometry args={[0.5, 0.5, 2, 16]} />
-      {/* Fica um pouco mais claro quando selecionado */}
       <meshStandardMaterial color={isSelected ? "#5A8BFF" : "#4169E1"} />
       {name && (
         <Html position={[0, 1.5, 0]} center>

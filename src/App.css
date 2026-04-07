@@ -71,3 +71,326 @@ body {
   pointer-events: none; /* Para não atrapalhar o clique no boneco */
   white-space: nowrap;
 }
+
+/* Event Log Right Sidebar */
+.event-log-panel {
+  width: 300px;
+  background-color: #1e272e;
+  color: white;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+}
+.log-container {
+  flex-grow: 1;
+  overflow-y: auto;
+  margin-top: 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.log-entry {
+  font-family: monospace;
+  font-size: 12px;
+  padding: 8px;
+  border-radius: 4px;
+  background: rgba(255,255,255,0.05);
+}
+.log-entry.info { border-left: 4px solid #3498db; }
+.log-entry.warning { border-left: 4px solid #f1c40f; color: #f1c40f; }
+.log-entry.error { border-left: 4px solid #e74c3c; color: #e74c3c; }
+.log-time { color: #95a5a6; margin-right: 8px; }
+
+/* Neural Network Overlay */
+.nn-visualizer {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  background: rgba(0, 0, 0, 0.7);
+  padding: 15px;
+  border-radius: 8px;
+  border: 1px solid #333;
+  pointer-events: none; /* Para não bloquear cliques na câmera */
+  z-index: 10;
+}
+.nn-node {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid white;
+  background: black;
+  box-shadow: 0 0 5px rgba(255,255,255,0.2);
+}
+.nn-node.active { background: #e67e22; box-shadow: 0 0 10px #e67e22; }
+.nn-node.firing { background: #ff0000; box-shadow: 0 0 15px #ff0000; border-color: #ff0000; }
+
+/* =========================================
+   ESTILOS PREMIUM DO DASHBOARD
+========================================= */
+
+.app-container {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+  background-color: #0f1115;
+}
+
+.premium-dashboard {
+  width: 340px;
+  min-width: 340px;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: #181b21;
+  border-right: 1px solid #2e303a;
+  box-shadow: 4px 0 20px rgba(0, 0, 0, 0.4);
+  color: #e2e8f0;
+  z-index: 20;
+}
+
+/* Divisão 60% Topo */
+.dashboard-top {
+  flex: 0 0 55%; /* Aproximadamente 60% */
+  padding: 24px;
+  overflow-y: auto;
+  border-bottom: 2px solid #232730;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Divisão 40% Fundo */
+.dashboard-bottom {
+  flex: 1; /* Ocupa o restante (aprox 40%) */
+  padding: 24px;
+  overflow-y: auto;
+  background: #13151a;
+}
+
+/* Textos e Títulos */
+.dashboard-header h2 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+  color: #ffffff;
+  letter-spacing: 0.5px;
+}
+
+.subtitle {
+  margin: 4px 0 16px 0;
+  font-size: 13px;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.panel-title {
+  font-size: 16px;
+  color: #f8fafc;
+  margin-bottom: 12px;
+  border-bottom: 1px solid #2e303a;
+  padding-bottom: 8px;
+}
+
+/* Botões Genéricos */
+.action-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.btn-premium {
+  width: 100%;
+  padding: 12px 16px;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.btn-premium:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.btn-premium:active {
+  transform: translateY(0);
+}
+
+/* Cores dos Botões */
+.btn-success { background: linear-gradient(135deg, #10b981, #059669); color: white; }
+.btn-danger { background: linear-gradient(135deg, #ef4444, #dc2626); color: white; }
+.btn-warning { background: linear-gradient(135deg, #f59e0b, #d97706); color: white; }
+.btn-dark { background: linear-gradient(135deg, #334155, #1e293b); color: white; }
+.btn-action { background: linear-gradient(135deg, #3b82f6, #2563eb); color: white; }
+.btn-farm { background: linear-gradient(135deg, #d97706, #b45309); color: white; }
+
+/* Menu Dropdown de Adição */
+.dropdown-section {
+  margin-top: 10px;
+}
+
+.btn-dropdown-toggle {
+  background: #272a35;
+  color: #cbd5e1;
+  justify-content: space-between;
+  border: 1px solid #3f4455;
+}
+
+.btn-dropdown-toggle.active {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  background: #333846;
+}
+
+.dropdown-content {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.3s ease-in-out;
+  background: #1e2128;
+  border: 1px solid #3f4455;
+  border-top: none;
+  border-bottom-left-radius: 8px;
+  border-bottom-right-radius: 8px;
+}
+
+.dropdown-content.open {
+  max-height: 200px; /* Suficiente para os botões */
+}
+
+.btn-dropdown-item {
+  width: 100%;
+  padding: 12px 16px;
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  transition: background 0.2s, color 0.2s;
+}
+
+.btn-dropdown-item .icon {
+  font-size: 16px;
+  background: #2c313c;
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+
+.btn-dropdown-item:hover {
+  background: #2a2e39;
+  color: #ffffff;
+}
+
+/* Painéis Secundários (40%) */
+.context-panel {
+  background: #1e2128;
+  padding: 16px;
+  border-radius: 12px;
+  border: 1px solid #2e303a;
+  animation: fadeIn 0.3s ease;
+}
+
+.farm-panel {
+  background: rgba(39, 174, 96, 0.1);
+  border: 1px solid rgba(39, 174, 96, 0.3);
+}
+
+.panel-header-flex {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.btn-close-small {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  font-size: 16px;
+}
+
+.btn-close-small:hover { color: #ef4444; }
+
+/* Status, Inputs e Textos */
+.status-badge {
+  background: #111827;
+  padding: 12px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+  font-size: 13px;
+  color: #cbd5e1;
+}
+
+.stats-row {
+  display: flex;
+  gap: 16px;
+  margin-top: 8px;
+  font-weight: 600;
+}
+
+.id-tag {
+  color: #60a5fa;
+  font-family: monospace;
+}
+
+.premium-label {
+  display: block;
+  font-size: 12px;
+  color: #94a3b8;
+  margin-bottom: 6px;
+  margin-top: 12px;
+}
+
+.premium-input {
+  width: 100%;
+  padding: 10px;
+  background: #0f1115;
+  border: 1px solid #3f4455;
+  border-radius: 6px;
+  color: white;
+  font-size: 14px;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.premium-input:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
+.empty-state {
+  color: #64748b;
+  font-size: 13px;
+  text-align: center;
+  font-style: italic;
+  margin-top: 20px;
+}
+
+.flex-row {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.warning-text {
+  color: #fbbf24;
+  font-size: 13px;
+  background: rgba(251, 191, 36, 0.1);
+  padding: 8px;
+  border-radius: 6px;
+  margin-top: 8px;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}

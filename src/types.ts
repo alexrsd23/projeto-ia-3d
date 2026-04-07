@@ -1,11 +1,9 @@
 export interface Entity {
   id: string;
-  type: 'house' | 'character';
+  type: 'house' | 'character' | 'cactus';
   position: [number, number, number];
   name?: string;
   birthdate?: string;
-  
-  // Novos atributos de simulação
   health?: number; 
   hunger?: number;
 }
@@ -23,4 +21,11 @@ export interface TileData {
   gridZ: number; // Posição global Z no mundo
   type: 'grass' | 'farm'; // Grama comum ou Terra Arada
   crops: CropData[];
+}
+
+export interface SimulationEvent {
+  id: string;
+  level: 'INFO' | 'WARNING' | 'ERROR';
+  message: string;
+  timestamp: string;
 }
