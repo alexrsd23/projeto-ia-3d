@@ -120,3 +120,21 @@ def simulate_tick():
         print("\n🚨 ERRO CRÍTICO NO TICK 🚨")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ... (todo o código do simulate_tick continua igual acima) ...
+
+@router.post("/kill-agents")
+def kill_all_agents():
+    """Mata todos os agentes no banco de dados, mas preserva a memória da IA"""
+    try:
+        with driver.session() as session:
+            # Apaga apenas os personagens. Mantém casas, cactos e plantações.
+            session.run("MATCH (c:Entity {type: 'character'}) DETACH DELETE c")
+        
+        # Regista o evento heroico/trágico no log do frontend
+        ai_controller.logger.log("WARNING", "☠️ EXPURGO: Todos os agentes foram eliminados. O Aprendizado foi retido na Mente Global.")
+        
+        return {"message": "Expurgo concluído!"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

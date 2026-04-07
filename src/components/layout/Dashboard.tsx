@@ -17,19 +17,19 @@ interface DashboardProps {
   onPlow: (id: string) => void;
   onPlant: (id: string) => void;
   onDeselectTile: () => void;
-  
-  // NOVAS PROPS DO MODO DE TESTE
   isRouteTestingMode: boolean;
   onToggleRouteTesting: () => void;
   routeBounds: RouteBounds;
   setRouteBounds: (bounds: RouteBounds) => void;
+  onKillAllAgents: () => void;
 }
 
 export default function Dashboard({
   onAddEntity, isRunning, onToggleSimulation, selectedEntity,
   onSaveIdentity, onToggleDayNight, isDay, selectedTile,
   onPlow, onPlant, onDeselectTile,
-  isRouteTestingMode, onToggleRouteTesting, routeBounds, setRouteBounds
+  isRouteTestingMode, onToggleRouteTesting, routeBounds, setRouteBounds,
+  onKillAllAgents
 }: DashboardProps) {
   
   const [name, setName] = useState('');
@@ -52,7 +52,7 @@ export default function Dashboard({
           <p className="subtitle">Simulador IA 3D</p>
         </div>
 
-        <div className="action-group">
+       <div className="action-group">
           <button className={`btn-premium ${isRunning ? 'btn-danger' : 'btn-success'}`} onClick={onToggleSimulation}>
             {isRunning ? '⏸ Pausar Simulação' : '▶️ Iniciar Simulação'}
           </button>
@@ -61,9 +61,13 @@ export default function Dashboard({
             {isDay ? '🌙 Mudar para Noite' : '☀️ Mudar para Dia'}
           </button>
 
-          {/* NOVO: TOGGLE MODO DE TESTE */}
           <button className={`btn-premium ${isRouteTestingMode ? 'btn-action' : 'btn-dark'}`} onClick={onToggleRouteTesting}>
             {isRouteTestingMode ? '📍 Modo Teste de Rotas: ON' : '📍 Modo Teste de Rotas: OFF'}
+          </button>
+
+          {/* O NOVO BOTÃO DE EXPURGO */}
+          <button className="btn-premium btn-danger" onClick={onKillAllAgents} style={{ marginTop: '10px', border: '1px solid #ff4d4d' }}>
+            ☠️ Expurgo: Matar Agentes
           </button>
         </div>
 

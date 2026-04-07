@@ -204,6 +204,26 @@ export default function App() {
     } catch (error) { console.error(error); }
   };
 
+  // ========================================================
+  // SISTEMA DE EXPURGO (MATA AGENTES MAS MANTÉM IA)
+  // ========================================================
+  const handleKillAllAgents = async () => {
+    // 1. Limpa os agentes da tela instantaneamente (mantém casas e cactos)
+    setEntities(prev => prev.filter(e => e.type !== 'character'));
+    
+    // 2. Se o utilizador estava com um agente selecionado, desmarca-o
+    if (selectedEntity?.type === 'character') {
+      setSelectedEntityId(null);
+    }
+
+    // 3. Pede ao Python para apagar do Neo4j
+    try {
+      await fetch('http://127.0.0.1:8000/api/kill-agents', { method: 'POST' });
+    } catch (error) {
+      console.error("Erro ao executar expurgo:", error);
+    }
+  };
+
   return (
     <div className="app-container">
       <Dashboard
@@ -218,12 +238,11 @@ export default function App() {
         onPlow={handlePlowTile}
         onPlant={handlePlantCrop}
         onDeselectTile={() => setSelectedTileId(null)}
-        
-        // Passando as novas props pro Dashboard
         isRouteTestingMode={isRouteTestingMode}
         onToggleRouteTesting={() => setIsRouteTestingMode(!isRouteTestingMode)}
         routeBounds={routeBounds}
         setRouteBounds={setRouteBounds}
+        onKillAllAgents={handleKillAllAgents}
       />
 
       <div style={{ position: 'relative', flexGrow: 1 }}>
