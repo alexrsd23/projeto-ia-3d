@@ -1,14 +1,14 @@
 import { useState } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
-import Ground from '../3d/Ground';
 import House from '../3d/House';
 import Character from '../3d/Character';
 import Skybox from '../3d/environment/Skybox';
 import Sun from '../3d/environment/Sun';
 import Moon from '../3d/environment/Moon';
 import DarknessOverlay from '../3d/environment/DarknessOverlay';
-import type { Entity } from '../../types';
+import Ground from '../3d/environment/ground/Ground';
+import type { Entity, TileData } from '../../types';
 
 interface Viewport3DProps {
   entities: any[];
@@ -21,11 +21,14 @@ interface Viewport3DProps {
   onMoveSun: (pos: [number, number, number]) => void;
   onMoveMoon: (pos: [number, number, number]) => void;
   isDay: boolean;
+  tiles: TileData[];
+  selectedTileId: string | null;
+  onSelectTile: (id: string) => void;
 }
 
 export default function Viewport3D({
   entities, selectedEntityId, onSelectEntity, onDeselect, onMoveEntity,
-  sunPos, moonPos, onMoveSun, onMoveMoon, isDay
+  sunPos, moonPos, onMoveSun, onMoveMoon, isDay, tiles, selectedTileId, onSelectTile
 }: Viewport3DProps) {
 
   const [isDragging, setIsDragging] = useState(false);
@@ -33,7 +36,7 @@ export default function Viewport3D({
   return (
     <div className="viewport">
       <Canvas shadows camera={{ position: [0, 10, 20], fov: 50 }} onPointerMissed={onDeselect}>
-        
+
         {/* A MÁGICA DO FUNDO: Pinta o "vazio" infinito com a cor exata do nosso céu! */}
         <color attach="background" args={[isDay ? "#b0c0c6" : "#393f48"]} />
 
@@ -48,7 +51,7 @@ export default function Viewport3D({
           <Moon position={moonPos} isSelected={selectedEntityId === 'moon'} onClick={() => onSelectEntity('moon')} onMove={onMoveMoon} setIsDragging={setIsDragging} />
         )}
 
-        <Ground />
+        <Ground tiles={tiles} selectedTileId={selectedTileId} onSelectTile={onSelectTile} />
 
         {entities.map((entity) => {
           if (entity.type === 'character') {
@@ -60,13 +63,13 @@ export default function Viewport3D({
               />
             );
           }
-          
+
           if (entity.type === 'house') {
             return (
-              <House 
-                key={entity.id} 
+              <House
+                key={entity.id}
                 id={entity.id}
-                position={entity.position} 
+                position={entity.position}
                 isSelected={selectedEntityId === entity.id}
                 onClick={onSelectEntity}
                 onMove={onMoveEntity}
@@ -74,7 +77,7 @@ export default function Viewport3D({
               />
             );
           }
-          
+
           return null;
         })}
       </Canvas>

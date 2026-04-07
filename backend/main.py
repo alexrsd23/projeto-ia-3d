@@ -24,14 +24,16 @@ USER = "neo4j"
 PASSWORD = "admin123" # <-- NÃO ESQUEÇA DE COLOCAR SUA SENHA DO NEO4J AQUI!
 driver = GraphDatabase.driver(URI, auth=(USER, PASSWORD))
 
-# 3. O "Contrato" de Dados
+from typing import Optional
+
 class EntityModel(BaseModel):
     id: str
     type: str
     position: list[float]
-    # Tornando opcionais para não quebrar os que já existem
     name: Optional[str] = None
     birthdate: Optional[str] = None
+    health: Optional[int] = None
+    hunger: Optional[int] = None
 
 class EntityUpdateModel(BaseModel):
     name: str
@@ -47,15 +49,16 @@ def home():
 
 @app.post("/api/entities")
 def create_entity(entity: EntityModel):
-    """Grava um novo boneco ou casa no banco de grafos Neo4j"""
-    
+    # Atualize a query do Neo4j
     query = """
     CREATE (e:Entity {
         id: $id, 
         type: $type, 
         posX: $posX, 
         posY: $posY, 
-        posZ: $posZ
+        posZ: $posZ,
+        health: $health,
+        hunger: $hunger
     })
     RETURN e
     """
@@ -68,7 +71,9 @@ def create_entity(entity: EntityModel):
                 type=entity.type, 
                 posX=entity.position[0], 
                 posY=entity.position[1], 
-                posZ=entity.position[2]
+                posZ=entity.position[2],
+                health=entity.health,  # Passa a vida para o banco
+                hunger=entity.hunger   # Passa a fome para o banco
             )
         return {"message": f"{entity.type} criado com sucesso no Neo4j!"}
     except Exception as e:
@@ -92,8 +97,10 @@ def get_entities():
                     "id": node["id"],
                     "type": node["type"],
                     "position": [node["posX"], node["posY"], node["posZ"]],
-                    "name": node.get("name"),           # Novo
-                    "birthdate": node.get("birthdate")  # Novo
+                    "name": node.get("name"),
+                    "birthdate": node.get("birthdate"),
+                    "health": node.get("health"), # Novo
+                    "hunger": node.get("hunger")  # Novo
                 })
         return entities
     except Exception as e:

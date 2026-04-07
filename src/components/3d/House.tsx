@@ -31,7 +31,23 @@ export default function House({ id, position, isSelected, onClick, onMove, setIs
     (e.target as any).releasePointerCapture(e.pointerId);
 
     if (meshRef.current) {
-      onMove(id, [meshRef.current.position.x, position[1], meshRef.current.position.z]);
+      // --- LÓGICA DE GRID SNAPPING (ENCAIXE) ---
+      let finalX = meshRef.current.position.x;
+      let finalZ = meshRef.current.position.z;
+
+      // Arredonda para o múltiplo de 2 mais próximo (tamanho exato do nosso Tile)
+      finalX = Math.round(finalX / 2) * 2;
+      finalZ = Math.round(finalZ / 2) * 2;
+
+      // Validação: Garante que o encaixe não jogue a casa para fora do mundo (-24 a 24)
+      finalX = Math.max(-24, Math.min(24, finalX));
+      finalZ = Math.max(-24, Math.min(24, finalZ));
+
+      // 1. Atualiza visualmente na mesma hora para dar o efeito de "pulo" pro lugar certo
+      meshRef.current.position.set(finalX, position[1], finalZ);
+
+      // 2. Salva a nova coordenada perfeita no banco de dados
+      onMove(id, [finalX, position[1], finalZ]);
     }
   };
 
@@ -41,7 +57,7 @@ export default function House({ id, position, isSelected, onClick, onMove, setIs
       const intersectPoint = new THREE.Vector3();
       const hit = e.ray.intersectPlane(dragPlane, intersectPoint);
       if (hit) {
-        // CLAMP: Impede que passe de 24 (desconta o volume da casa)
+        // Movimentação livre durante o arrasto, mantendo o limite do mundo
         const clampedX = Math.max(-24, Math.min(24, intersectPoint.x));
         const clampedZ = Math.max(-24, Math.min(24, intersectPoint.z));
         
@@ -61,6 +77,7 @@ export default function House({ id, position, isSelected, onClick, onMove, setIs
       onPointerMove={handlePointerMove}
       scale={dragging ? 1.05 : 1}
     >
+      {/* Como o tamanho é [2, 2, 2] e a célula é [2, 2], a ocupação é integral! */}
       <boxGeometry args={[2, 2, 2]} />
       <meshStandardMaterial color={isSelected ? "#A0522D" : "#8B4513"} />
     </mesh>
