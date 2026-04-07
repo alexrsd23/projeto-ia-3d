@@ -5,16 +5,15 @@ interface NNProps {
 }
 
 export default function NeuralNetworkVisualizer({ lastAction }: NNProps) {
-  const actions = ["Acelerar", "Ré", "Esquerda", "Direita"];
+  const actions = ["Frente", "Trás", "Esq", "Dir", "Diag CE", "Diag CD", "Diag BE", "Diag BD"];
   
-  // Coordenadas matemáticas fixas para desenhar as linhas no SVG perfeitamente
   const inputs = Array.from({ length: 8 }, (_, i) => ({ id: `i${i}`, x: 30, y: 30 + i * 25 }));
   const hiddens = Array.from({ length: 4 }, (_, i) => ({ id: `h${i}`, x: 130, y: 70 + i * 35 }));
-  const outputs = Array.from({ length: 4 }, (_, i) => ({ id: `o${i}`, x: 230, y: 70 + i * 35 }));
+  const outputs = Array.from({ length: 8 }, (_, i) => ({ id: `o${i}`, x: 230, y: 20 + i * 25 }));
 
   return (
     <div className="nn-visualizer" style={{ 
-      width: '320px', height: '260px', position: 'absolute', top: 20, left: 20, 
+      width: '320px', height: '300px', position: 'absolute', top: 20, left: 20, 
       background: 'rgba(0,0,0,0.85)', borderRadius: 8, padding: 10, 
       pointerEvents: 'none', zIndex: 10, border: '1px solid #333' 
     }}>

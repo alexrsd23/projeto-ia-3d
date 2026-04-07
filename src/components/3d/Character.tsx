@@ -11,9 +11,10 @@ interface CharacterProps {
   onClick: (id: string) => void;
   onMove: (id: string, pos: [number, number, number]) => void;
   setIsDragging: (val: boolean) => void;
+  showNames: boolean; // NOVO
 }
 
-export default function Character({ id, position, name, isSelected, onClick, onMove, setIsDragging }: CharacterProps) {
+export default function Character({ id, position, name, isSelected, onClick, onMove, setIsDragging, showNames }: CharacterProps) {
   const meshRef = useRef<THREE.Mesh>(null);
   const [dragging, setDragging] = useState(false);
 
@@ -69,10 +70,13 @@ export default function Character({ id, position, name, isSelected, onClick, onM
     }
   };
 
+  const isExplorer = name?.toLowerCase().includes('explorador');
+  const defaultColor = isExplorer ? "#e74c3c" : "#4169E1"; 
+  const highlightColor = isExplorer ? "#ff7675" : "#5A8BFF";
+
   return (
     <mesh
       ref={meshRef}
-      // NOTA: Removemos a propriedade "position={position}" daqui para que o useFrame assuma o controle visual!
       castShadow
       receiveShadow
       onPointerDown={handlePointerDown}
@@ -81,8 +85,9 @@ export default function Character({ id, position, name, isSelected, onClick, onM
       scale={dragging ? 1.1 : 1}
     >
       <cylinderGeometry args={[0.5, 0.5, 2, 16]} />
-      <meshStandardMaterial color={isSelected ? "#5A8BFF" : "#4169E1"} />
-      {name && (
+      {/* Aqui usamos a nova cor! */}
+      <meshStandardMaterial color={isSelected ? highlightColor : defaultColor} />
+      {name && showNames && (
         <Html position={[0, 1.5, 0]} center>
           <div className="name-bubble">{name}</div>
         </Html>

@@ -23,6 +23,8 @@ export default function App() {
   const [isRouteTestingMode, setIsRouteTestingMode] = useState(false);
   const [routeBounds, setRouteBounds] = useState({ xMin: -24, xMax: -16, zMin: 16, zMax: 24 });
 
+  const [showNames, setShowNames] = useState(true);
+
   const isProcessingTick = useRef(false);
 
   const [analytics, setAnalytics] = useState<RouteAnalytics | null>(null);
@@ -247,6 +249,8 @@ export default function App() {
         routeBounds={routeBounds}
         setRouteBounds={setRouteBounds}
         onKillAllAgents={handleKillAllAgents}
+        showNames={showNames} // LIGA NO DASHBOARD
+        onToggleShowNames={() => setShowNames(!showNames)} // FUNÇÃO QUE VIRA A CHAVE
       />
 
       <div style={{ position: 'relative', flexGrow: 1 }}>
@@ -269,6 +273,7 @@ export default function App() {
           isRouteTestingMode={isRouteTestingMode}
           routeBounds={routeBounds}
           analytics={analytics}
+          showNames={showNames} // LIGA NO VIEWPORT
         />
       </div>
 

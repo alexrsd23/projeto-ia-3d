@@ -22,6 +22,8 @@ interface DashboardProps {
   routeBounds: RouteBounds;
   setRouteBounds: (bounds: RouteBounds) => void;
   onKillAllAgents: () => void;
+  showNames: boolean; // NOVO
+  onToggleShowNames: () => void; // NOVO
 }
 
 export default function Dashboard({
@@ -29,7 +31,7 @@ export default function Dashboard({
   onSaveIdentity, onToggleDayNight, isDay, selectedTile,
   onPlow, onPlant, onDeselectTile,
   isRouteTestingMode, onToggleRouteTesting, routeBounds, setRouteBounds,
-  onKillAllAgents
+  onKillAllAgents, showNames, onToggleShowNames
 }: DashboardProps) {
   
   const [name, setName] = useState('');
@@ -63,6 +65,11 @@ export default function Dashboard({
 
           <button className={`btn-premium ${isRouteTestingMode ? 'btn-action' : 'btn-dark'}`} onClick={onToggleRouteTesting}>
             {isRouteTestingMode ? '📍 Modo Teste de Rotas: ON' : '📍 Modo Teste de Rotas: OFF'}
+          </button>
+
+          {/* NOVO: BOTÃO DE MOSTRAR/OCULTAR NOMES */}
+          <button className={`btn-premium ${showNames ? 'btn-success' : 'btn-dark'}`} onClick={onToggleShowNames}>
+            {showNames ? '🏷️ Nomes Visíveis: ON' : '🏷️ Nomes Visíveis: OFF'}
           </button>
 
           {/* O NOVO BOTÃO DE EXPURGO */}

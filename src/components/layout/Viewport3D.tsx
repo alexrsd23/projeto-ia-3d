@@ -35,13 +35,14 @@ interface Viewport3DProps {
   heatmap: {gridX: number, gridZ: number, visits: number}[]; 
   isRouteTestingMode: boolean;
   routeBounds: RouteBounds;
-  analytics: any; // Recebe a Mente Colmeia
+  analytics: any;
+  showNames: boolean;
 }
 
 export default function Viewport3D({
   entities, selectedEntityId, onSelectEntity, onDeselect, onMoveEntity,
   sunPos, moonPos, onMoveSun, onMoveMoon, isDay, tiles, selectedTileId, onSelectTile, heatmap,
-  isRouteTestingMode, routeBounds, analytics
+  isRouteTestingMode, routeBounds, analytics, showNames
 }: Viewport3DProps) {
 
   const [isDragging, setIsDragging] = useState(false);
@@ -83,6 +84,7 @@ export default function Viewport3D({
                 key={entity.id} id={entity.id} position={entity.position} name={entity.name}
                 isSelected={selectedEntityId === entity.id}
                 onClick={onSelectEntity} onMove={onMoveEntity} setIsDragging={setIsDragging}
+                showNames={showNames}
               />
             );
           }

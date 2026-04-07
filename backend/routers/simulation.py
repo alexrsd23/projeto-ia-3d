@@ -33,6 +33,7 @@ def simulate_tick():
                     potatoes.append((t['x'], t['z']))
 
             updates_positions = []
+            updates_names = []
             dead_agents = []
             last_action_taken = 0 
 
@@ -43,9 +44,15 @@ def simulate_tick():
                     agent_name = 'Agente Antigo'
                 
                 # ===============================================================
-                # NOVO: INÍCIO DO EPISÓDIO (Regista a origem para a Telemetria)
+                # INÍCIO DO EPISÓDIO E DEFINIÇÃO DE NOME E COR
                 # ===============================================================
-                ai_controller.analytics.start_episode(char['id'], char['x'], char['z'])
+                mode, is_new = ai_controller.analytics.start_episode(char['id'], char['x'], char['z'])
+                
+                if is_new:
+                    # Se for explorador, chama-se Explorador. Se for seguidor, chama-se Agente.
+                    agent_name = f"Explorador {random.randint(10,99)}" if mode == 'explore' else f"Agente {random.randint(10,99)}"
+                    updates_names.append({"id": char['id'], "name": agent_name})
+                    char['name'] = agent_name
                 
                 target = (0.0, 0.0) if not potatoes else min(potatoes, key=lambda p: math.hypot(p[0]-char['x'], p[1]-char['z']))
                 
@@ -72,6 +79,19 @@ def simulate_tick():
                 
                 if not reached_target and not done and new_dist < dist_to_target:
                     reward += 2.0 
+                    
+                    # MOLDAGEM DE RECOMPENSA (BRESENHAM HEURISTIC):
+                    # Força a IA a desenhar a reta mais perfeita e direta possível na grelha
+                    dist_x_old = abs(target[0] - char['x'])
+                    dist_z_old = abs(target[1] - char['z'])
+                    
+                    # Desempate geométrico: A IA ganha um bónus extra se reduzir o eixo que está mais atrasado
+                    if dist_x_old > dist_z_old and char['x'] != new_x:
+                        reward += 0.5 
+                    elif dist_z_old > dist_x_old and char['z'] != new_z:
+                        reward += 0.5 
+                    elif dist_x_old == dist_z_old:
+                        reward += 0.2 # Recompensa por manter a simetria diagonal
 
                 new_state = EnvironmentSensor.get_state((new_x, new_z), target, ai_controller.shared_knowledge)
                 ai_controller.brain.train(old_state, action, reward, new_state, done)
@@ -118,6 +138,14 @@ def simulate_tick():
             # 5. Banco de Dados: Aplica as Deleções e Movimentações
             if dead_agents:
                 session.run("MATCH (e:Entity) WHERE e.id IN $ids DETACH DELETE e", ids=dead_agents)
+            
+            # NOVO: Grava a mudança de nome no Neo4j
+            if updates_names:
+                session.run("""
+                UNWIND $updates AS update
+                MATCH (c:Entity {id: update.id})
+                SET c.name = update.name
+                """, updates=updates_names)
             if updates_positions:
                 session.run("""
                 UNWIND $updates AS update
