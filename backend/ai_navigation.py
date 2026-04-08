@@ -193,27 +193,21 @@ class RouteAnalyticsSystem:
                                 sub_str = ep['actions'][i_A : i_B]
                                 
                                 new_local_steps = i_B - i_A
-                                old_local_steps = old_i_B - old_i_A
+                            old_local_steps = old_i_B - old_i_A
                             
-                            # LOG 2: Distância local
-                            self.logger.log("DEBUG", f"⚖️ Distância Local: Antiga={old_local_steps} vs Nova={new_local_steps}")
+                            # A SUA SOLUÇÃO 4: O Score Composto para a Otimização Local (Tempo Real)
+                            new_turns = sum(1 for k in range(1, len(sub_raw)) if sub_raw[k] != sub_raw[k-1])
+                            old_raw_segment = self.best_routes[origin]['raw_actions'][old_i_A : old_i_B]
+                            old_turns = sum(1 for k in range(1, len(old_raw_segment)) if old_raw_segment[k] != old_raw_segment[k-1])
+                            
+                            new_local_score = new_local_steps + (new_turns * 0.15)
+                            old_local_score = old_local_steps + (old_turns * 0.15)
                             
                             is_local_better = False
                             
-                            if new_local_steps < old_local_steps:
+                            if new_local_score < old_local_score:
                                 is_local_better = True
-                                self.logger.log("DEBUG", f"✅ Atalho Local! Economia: {old_local_steps - new_local_steps}")
-                            elif new_local_steps == old_local_steps:
-                                old_raw_segment = self.best_routes[origin]['raw_actions'][old_i_A : old_i_B]
-                                new_turns = sum(1 for k in range(1, len(sub_raw)) if sub_raw[k] != sub_raw[k-1])
-                                old_turns = sum(1 for k in range(1, len(old_raw_segment)) if old_raw_segment[k] != old_raw_segment[k-1])
-                                
-                                # LOG 3: Desempate Estético Local
-                                self.logger.log("DEBUG", f"📐 Empate Local. Curvas: Antiga={old_turns} vs Nova={new_turns}")
-                                
-                                if new_turns < old_turns:
-                                    is_local_better = True
-                                    self.logger.log("DEBUG", f"✅ Rota Local Mais Reta! Voto aceite.")
+                                self.logger.log("DEBUG", f"✅ Atalho Local! Score: {old_local_score:.2f} -> {new_local_score:.2f}")
                                     
                             if is_local_better:
                                 sub_hash = tuple(sub_path)
@@ -279,29 +273,33 @@ class RouteAnalyticsSystem:
             is_perfect_route = (score <= math_min_steps + 1)
             
             # =================================================================
-            # AVALIAÇÃO GLOBAL (Com Sondas)
+            # A SUA SOLUÇÃO 4: AVALIAÇÃO GLOBAL (O Recorde da Corrida)
             # =================================================================
+            new_raw = ep['raw_actions']
+            new_turns = sum(1 for i in range(1, len(new_raw)) if new_raw[i] != new_raw[i-1])
+            
+            # Calcula o Score Composto Global
+            ep['score'] = ep['steps'] + (new_turns * 0.15)
+            score = ep['score']
+            
+            final_pos = ep['path_coords'][-1]
+            math_min_steps = math.ceil(max(abs(final_pos[0] - origin[0]) / 2, abs(final_pos[1] - origin[1]) / 2))
+            
+            # Uma rota só é perfeitamente matemática se os passos forem os mínimos e tiver 0 ou 1 curva no máximo
+            is_perfect_route = (ep['steps'] <= math_min_steps + 1 and new_turns <= 1)
+            
             is_better_route = False
             
             if origin not in self.best_routes:
                 is_better_route = True
             else:
                 old_score = self.best_routes[origin]['score']
-                # LOG 4: Avaliação Global
-                self.logger.log("DEBUG", f"🌍 Global Eval: Explorador={score} vs Recorde={old_score}")
+                self.logger.log("DEBUG", f"🌍 Global Eval: Explorador={score:.2f} vs Recorde={old_score:.2f}")
                 
+                # O desempate cheio de IFs acabou! O Score Composto cuida de tudo sozinho!
                 if score < old_score:
                     is_better_route = True
-                    self.logger.log("DEBUG", f"🏆 Recorde Global Batido! {old_score} -> {score}")
-                elif score == old_score:
-                    new_raw = ep['raw_actions']
-                    old_raw = self.best_routes[origin]['raw_actions']
-                    new_turns = sum(1 for i in range(1, len(new_raw)) if new_raw[i] != new_raw[i-1])
-                    old_turns = sum(1 for i in range(1, len(old_raw)) if old_raw[i] != old_raw[i-1])
-                    
-                    if new_turns < old_turns:
-                        is_better_route = True
-                        self.logger.log("DEBUG", f"✨ Otimização Estética Global Aceita! (Curvas: {old_turns} -> {new_turns})")
+                    self.logger.log("DEBUG", f"🏆 Recorde Global Batido! {old_score:.2f} -> {score:.2f}")
 
             if is_better_route:
                 self.best_routes[origin] = {
@@ -389,16 +387,17 @@ class RouteAnalyticsSystem:
 # (O resto das classes no arquivo ai_navigation.py continua perfeitamente igual)
 class EnvironmentSensor:
     @staticmethod
-    def get_state(agent_pos, target_pos, shared_knowledge):
+    def get_state(agent_pos, target_pos, shared_knowledge, last_action=-1):
         dx = round((target_pos[0] - agent_pos[0]) / 2)
         dz = round((target_pos[1] - agent_pos[1]) / 2)
         
-        return np.array([dx, dz])
+        # A SUA SOLUÇÃO 1: O Estado agora "lembra" a inércia!
+        return np.array([dx, dz, last_action])
 
 class RewardSystem:
     @staticmethod
     def calculate(new_x, new_z, is_collision, is_out_of_bounds, hit_cactus, shared_knowledge, reached_target):
-        if is_out_of_bounds: return -100.0, True # Morte imediata tem prioridade absoluta!
+        if is_out_of_bounds: return -100.0, True 
         if hit_cactus: return -100.0, True
         if reached_target: return 500.0, True 
         if shared_knowledge.is_dangerous(new_x, new_z): return -50.0, False 
@@ -415,8 +414,8 @@ class NeuralNetworkPlaceholder:
         
     def get_action(self, state):
         state_key = tuple(np.round(state, 1))
+        last_action = int(state[2]) # Recupera a inércia do estado
         
-        # 1. Explorador puro age aleatoriamente
         if random.random() < self.epsilon:
             return random.randint(0, 7) 
             
@@ -426,10 +425,13 @@ class NeuralNetworkPlaceholder:
         q_values = self.q_table[state_key]
         max_q = np.max(q_values)
         
-        # 2. O FIX DA ONDA: Encontra todas as ações que estão empatadas no primeiro lugar
         best_actions = [action for action, q in enumerate(q_values) if q == max_q]
         
-        # 3. Escolhe aleatoriamente entre os vencedores, eliminando o viés direcional!
+        # A SUA SOLUÇÃO 3: O Tie-Break Inteligente! 
+        # Elimina a "escadinha" preferindo manter a direção atual se ela for uma das melhores.
+        if last_action in best_actions:
+            return last_action
+            
         return random.choice(best_actions)
         
     def train(self, state, action, reward, next_state, done):
@@ -456,7 +458,11 @@ class AgentController:
     def process_tick(self, agent_id, agent_pos, target_pos):
         self.shared_knowledge.tick() 
         
-        state = EnvironmentSensor.get_state(agent_pos, target_pos, self.shared_knowledge)
+        # RECUPERA A ÚLTIMA AÇÃO PARA A INÉRCIA DO ESTADO
+        ep = self.analytics.active_episodes.get(agent_id)
+        last_act = ep['raw_actions'][-1] if ep and len(ep['raw_actions']) > 0 else -1
+        
+        state = EnvironmentSensor.get_state(agent_pos, target_pos, self.shared_knowledge, last_act)
         planned_action = self.analytics.get_planned_action(agent_id)
         
         # AS 8 DIREÇÕES (Movimento em Vizinhança de Moore)
