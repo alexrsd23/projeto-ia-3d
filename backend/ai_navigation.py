@@ -65,7 +65,7 @@ class RouteAnalyticsSystem:
         self.origin_stats = {} 
         self.leaderboard = {} 
         self.spawn_counters = {}
-        self.subpath_suggestions = {}
+        self.optimization_state = {}
 
     def start_episode(self, agent_id, origin_x, origin_z):
         origin = (float(origin_x), float(origin_z))
@@ -142,67 +142,98 @@ class RouteAnalyticsSystem:
         
         ep = self.active_episodes[agent_id]
         origin = ep['origin']
-        
         shortcut_found = False
         
         # =================================================================
-        # NOVA REGRA: OTIMIZAÇÃO POR CONSENSO (Swarm Intelligence)
+        # NOVA REGRA: COSTURA DINÂMICA E LOG DE AUDITORIA
         # =================================================================
         if origin in self.best_routes and ep['original_mode'] == 'explore':
             old_path = self.best_routes[origin]['path_coords']
             old_raw = self.best_routes[origin]['raw_actions']
             old_str = self.best_routes[origin]['actions']
-            
-            if origin not in self.subpath_suggestions:
-                self.subpath_suggestions[origin] = {}
-            
-            # Analisa cada passo dado pelo explorador (Gera a evolução hierárquica naturalmente)
-            for idx_new, coord in enumerate(ep['path_coords']):
+
+            if origin not in self.optimization_state:
+                self.optimization_state[origin] = {'urn': {}, 'attempts': 0}
+
+            self.optimization_state[origin]['attempts'] += 1
+            total_explorers = self.optimization_state[origin]['attempts']
+
+            # Procura todas as interseções entre a viagem do explorador e a estrada oficial
+            intersections = []
+            for i, coord in enumerate(ep['path_coords']):
                 if coord in old_path:
-                    idx_old = old_path.index(coord)
-                    # Se ele chegou à mesma coordenada usando MENOS passos, é um atalho!
-                    if idx_new < idx_old:
-                        # Em vez de aplicar logo, cria uma "Assinatura/Hash" deste atalho exato
-                        shortcut_hash = tuple(ep['path_coords'][:idx_new+1])
-                        
-                        if shortcut_hash not in self.subpath_suggestions[origin]:
-                            self.subpath_suggestions[origin][shortcut_hash] = {
-                                'votes': 1,
-                                'path': ep['path_coords'][:idx_new+1],
-                                'raw': ep['raw_actions'][:idx_new],
-                                'str': ep['actions'][:idx_new],
-                                'idx_old': idx_old
-                            }
-                        else:
-                            # Replicação independente confirmada! Aumenta o voto.
-                            self.subpath_suggestions[origin][shortcut_hash]['votes'] += 1
-                            
-                        votes = self.subpath_suggestions[origin][shortcut_hash]['votes']
-                        
-                        # CONSENSO: Precisamos de 5 votos idênticos para aprovar 
-                        # (Usei 5 para manter a simulação fluída, mas a lógica é a que propôs)
-                        if votes >= 5:
-                            stitched_path = self.subpath_suggestions[origin][shortcut_hash]['path'] + old_path[idx_old+1:]
-                            stitched_raw = self.subpath_suggestions[origin][shortcut_hash]['raw'] + old_raw[idx_old:]
-                            stitched_str = self.subpath_suggestions[origin][shortcut_hash]['str'] + old_str[idx_old:]
-                            
-                            self.best_routes[origin]['path_coords'] = stitched_path
-                            self.best_routes[origin]['raw_actions'] = stitched_raw
-                            self.best_routes[origin]['actions'] = stitched_str
-                            self.best_routes[origin]['steps'] = len(stitched_raw)
-                            self.best_routes[origin]['score'] = len(stitched_raw)
-                            self.best_routes[origin]['plateau'] = 0 
-                            self.best_routes[origin]['fails'] = 0
-                            
-                            steps_saved = idx_old - idx_new
-                            self.logger.log("SUCCESS", f"✅ Consenso Atingido! Atalho validado na rota X:{origin[0]} Z:{origin[1]} (-{steps_saved} passos).")
-                            
-                            # Limpa a urna de votação pois a rota base mudou e novos atalhos precisam ser achados
-                            self.subpath_suggestions[origin] = {}
-                        
+                    intersections.append((i, old_path.index(coord), coord))
+
+            # Se cruzou a estrada pelo menos 2 vezes, avaliamos o trecho entre esses cruzamentos
+            if len(intersections) >= 2:
+                best_shortcut = None
+                max_saved = 0
+
+                # Testa todas as combinações de pontos de entrada e saída da estrada
+                for i in range(len(intersections) - 1):
+                    for j in range(i + 1, len(intersections)):
+                        new_idx_start, old_idx_start, pt_start = intersections[i]
+                        new_idx_end, old_idx_end, pt_end = intersections[j]
+
+                        # Garante que ele andou para a frente
+                        if old_idx_end > old_idx_start and new_idx_end > new_idx_start:
+                            new_steps = new_idx_end - new_idx_start
+                            old_steps = old_idx_end - old_idx_start
+
+                            # Descobriu um atalho dinâmico!
+                            if new_steps < old_steps:
+                                saved = old_steps - new_steps
+                                if saved > max_saved:
+                                    max_saved = saved
+                                    best_shortcut = (new_idx_start, new_idx_end, old_idx_start, old_idx_end, pt_start, pt_end)
+
+                if best_shortcut:
+                    new_idx_start, new_idx_end, old_idx_start, old_idx_end, pt_start, pt_end = best_shortcut
+                    sub_path = ep['path_coords'][new_idx_start : new_idx_end+1]
+                    sub_raw = ep['raw_actions'][new_idx_start : new_idx_end]
+                    sub_str = ep['actions'][new_idx_start : new_idx_end]
+
+                    sub_hash = tuple(sub_path)
+
+                    if sub_hash not in self.optimization_state[origin]['urn']:
+                        self.optimization_state[origin]['urn'][sub_hash] = {
+                            'votes': 1, 'path': sub_path, 'raw': sub_raw, 'str': sub_str, 
+                            'old_start': old_idx_start, 'old_end': old_idx_end
+                        }
+                    else:
+                        self.optimization_state[origin]['urn'][sub_hash]['votes'] += 1
+
+                    votes = self.optimization_state[origin]['urn'][sub_hash]['votes']
+                    negados = total_explorers - votes 
+
+                    # A SUA SOLICITAÇÃO: Log detalhado do processo de votação
+                    path_str_parts = [f"({int(sub_path[0][0])},{int(sub_path[0][1])}) - início"]
+                    for step_idx in range(len(sub_str)):
+                        path_str_parts.append(f"({int(sub_path[step_idx+1][0])},{int(sub_path[step_idx+1][1])}) - {sub_str[step_idx].lower()}")
+                    formatted_path = " → ".join(path_str_parts)
+
+                    self.logger.log("INFO", f"🔎 Avaliando trecho: [{formatted_path}] | Confirmado por: {votes} explorador(es), negado por: {negados}.")
+
+                    # CONSENSO: Reduzido para 3 votos para acelerar a demonstração visual
+                    if votes >= 3:
+                        new_path = old_path[:old_idx_start] + sub_path + old_path[old_idx_end+1:]
+                        new_raw = old_raw[:old_idx_start] + sub_raw + old_raw[old_idx_end:]
+                        new_str = old_str[:old_idx_start] + sub_str + old_str[old_idx_end:]
+
+                        self.best_routes[origin]['path_coords'] = new_path
+                        self.best_routes[origin]['raw_actions'] = new_raw
+                        self.best_routes[origin]['actions'] = new_str
+                        self.best_routes[origin]['steps'] = len(new_raw)
+                        self.best_routes[origin]['score'] = len(new_raw)
+                        self.best_routes[origin]['plateau'] = 0
+                        self.best_routes[origin]['fails'] = 0
+
+                        self.logger.log("SUCCESS", f"✅ Consenso Atingido! Rota substituída com sucesso (-{max_saved} passos).")
+
+                        # Limpa a urna e reinicia as tentativas pois a estrada oficial mudou
+                        self.optimization_state[origin] = {'urn': {}, 'attempts': 0} 
                         shortcut_found = True
-                        break # O explorador fez a sua parte, sai do loop
-        
+
         if origin not in self.origin_stats:
             self.origin_stats[origin] = {'attempts': 0, 'successes': 0}
             
@@ -236,6 +267,9 @@ class RouteAnalyticsSystem:
                     'plateau': 999 if is_perfect_route else 0
                 }
                 
+                # Reinicia o estado de otimização para a nova rota global
+                self.optimization_state[origin] = {'urn': {}, 'attempts': 0}
+                
                 if is_perfect_route:
                     self.logger.log("SUCCESS", f"⭐ Rota Perfeita Matematicamente encontrada para a origem X:{origin[0]} Z:{origin[1]}!")
             else:
@@ -254,14 +288,10 @@ class RouteAnalyticsSystem:
             if origin in self.best_routes:
                 if ep['original_mode'] == 'exploit':
                     self.best_routes[origin]['fails'] = self.best_routes[origin].get('fails', 0) + 1
-                    
                     tolerance = 10 if self.best_routes[origin].get('plateau', 0) >= 999 else 2
                     
                     if self.best_routes[origin]['fails'] >= tolerance:
-                        self.logger.log(
-                            "WARNING",
-                            f"🔄 Rota de X:{origin[0]} Z:{origin[1]} INVALIDADA (Falhas excessivas)."
-                        )
+                        self.logger.log("WARNING", f"🔄 Rota de X:{origin[0]} Z:{origin[1]} INVALIDADA (Falhas excessivas).")
                         del self.best_routes[origin]
                 
                 elif ep['original_mode'] == 'explore':
