@@ -22,6 +22,7 @@ interface DashboardProps {
   routeBounds: RouteBounds;
   setRouteBounds: (bounds: RouteBounds) => void;
   onKillAllAgents: () => void;
+  onClearAIMemory: () => void;
   showNames: boolean; // NOVO
   onToggleShowNames: () => void; // NOVO
 }
@@ -31,7 +32,7 @@ export default function Dashboard({
   onSaveIdentity, onToggleDayNight, isDay, selectedTile,
   onPlow, onPlant, onDeselectTile,
   isRouteTestingMode, onToggleRouteTesting, routeBounds, setRouteBounds,
-  onKillAllAgents, showNames, onToggleShowNames
+  onKillAllAgents, showNames, onToggleShowNames, onClearAIMemory
 }: DashboardProps) {
   
   const [name, setName] = useState('');
@@ -78,6 +79,11 @@ export default function Dashboard({
           {/* O NOVO BOTÃO DE EXPURGO */}
           <button className="btn-premium btn-danger" onClick={onKillAllAgents} style={{ marginTop: '10px', border: '1px solid #ff4d4d' }}>
             ☠️ Expurgo: Matar Agentes
+          </button>
+
+          {/* O NOVO BOTÃO DE AMNÉSIA */}
+          <button className="btn-premium btn-warning" onClick={onClearAIMemory} style={{ marginTop: '5px', border: '1px solid #f39c12' }}>
+            🧠 Amnésia: Limpar Memória IA
           </button>
         </div>
 

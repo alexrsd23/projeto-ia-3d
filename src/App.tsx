@@ -242,6 +242,20 @@ export default function App() {
     }
   };
 
+  // ========================================================
+  // SISTEMA DE AMNÉSIA (LIMPA APENAS A RAM DA IA)
+  // ========================================================
+  const handleClearAIMemory = async () => {
+    try {
+      await fetch('http://127.0.0.1:8000/api/clear-ai-memory', { method: 'POST' });
+      // Limpa os dados visuais do React instantaneamente para melhor feedback visual
+      setAnalytics(null);
+      setHeatmap([]);
+    } catch (error) {
+      console.error("Erro ao limpar memória da IA:", error);
+    }
+  };
+
   return (
     <div className="app-container">
       <Dashboard
@@ -261,6 +275,7 @@ export default function App() {
         routeBounds={routeBounds}
         setRouteBounds={setRouteBounds}
         onKillAllAgents={handleKillAllAgents}
+        onClearAIMemory={handleClearAIMemory}
         showNames={showNames} // LIGA NO DASHBOARD
         onToggleShowNames={() => setShowNames(!showNames)} // FUNÇÃO QUE VIRA A CHAVE
       />

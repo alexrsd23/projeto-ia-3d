@@ -188,3 +188,23 @@ def kill_all_agents():
         return {"message": "Expurgo concluído!"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    
+# ===============================================================
+# NOVO: Rota para Limpar APENAS a Memória da IA
+# ===============================================================
+@router.post("/clear-ai-memory")
+def clear_ai_memory():
+    """Apaga a memória da IA (RAM) sem matar os agentes físicos no banco"""
+    global ai_controller
+    global heatmap_data
+    
+    try:
+        # LOBOTOMIA: Substitui o cérebro antigo por um cérebro bebé "em branco"
+        ai_controller = AgentController()
+        heatmap_data = {} 
+        
+        ai_controller.logger.log("WARNING", "🧠 AMNÉSIA INDUZIDA: A memória de rotas da IA foi completamente apagada!")
+        
+        return {"message": "Memória da IA limpa com sucesso!"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
