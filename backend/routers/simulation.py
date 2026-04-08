@@ -46,7 +46,7 @@ def simulate_tick():
                 # FIX 1: O IdleState DEVE vir antes de iniciar o episódio!
                 # Isso impede que os agentes fiquem parados a criar episódios "fantasmas"
                 # =================================================================
-                if potatoes and dist_to_target <= 3.0:
+                if potatoes and dist_to_target <= 0.1:
                     continue 
 
                 agent_name = char.get('name')
@@ -75,7 +75,7 @@ def simulate_tick():
                 # FIX 2: Blindagem contra Suicídio Premiado.
                 # Só pode ser considerado "Sucesso" se estiver dentro do mapa e vivo!
                 # =================================================================
-                reached_target = bool(potatoes and new_dist <= 3.0 and not is_out_of_bounds and not is_collision and not hit_cactus)
+                reached_target = bool(potatoes and new_dist <= 0.1 and not is_out_of_bounds and not is_collision and not hit_cactus)
                 
                 # A RewardSystem agora vai punir severamente as quedas antes de sequer olhar para a batata
                 reward, done = RewardSystem.calculate(new_x, new_z, is_collision, is_out_of_bounds, hit_cactus, ai_controller.shared_knowledge, reached_target)
