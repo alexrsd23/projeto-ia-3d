@@ -9,11 +9,10 @@ interface TelemetryProps {
 export default function TelemetryPanel({ events, analytics }: TelemetryProps) {
   const [activeTab, setActiveTab] = useState<'events' | 'routes' | 'ranking'>('events');
   
-  // NOVO: Estados para os nossos filtros de ruído
+  // Lógica e estados mantidos rigorosamente iguais
   const [hideCactusDeaths, setHideCactusDeaths] = useState(false);
   const [hideOutOfBounds, setHideOutOfBounds] = useState(false);
 
-  // NOVO: Filtra os eventos em tempo real com base nos botões
   const filteredEvents = useMemo(() => {
     return events.filter(evt => {
       if (hideCactusDeaths && evt.message.includes('colidiu com um cacto')) return false;
@@ -23,88 +22,95 @@ export default function TelemetryPanel({ events, analytics }: TelemetryProps) {
   }, [events, hideCactusDeaths, hideOutOfBounds]);
 
   return (
-    <div className="event-log-panel">
-      <h3>Terminal de Telemetria</h3>
-      
-      <div style={{ display: 'flex', gap: '5px', marginBottom: '15px', borderBottom: '1px solid #3f4455', paddingBottom: '10px' }}>
-        <button className={`btn-premium ${activeTab === 'events' ? 'btn-action' : 'btn-dark'}`} style={{padding: '6px', fontSize: '11px'}} onClick={() => setActiveTab('events')}>Log</button>
-        <button className={`btn-premium ${activeTab === 'routes' ? 'btn-success' : 'btn-dark'}`} style={{padding: '6px', fontSize: '11px'}} onClick={() => setActiveTab('routes')}>Rotas Ótimas</button>
-        <button className={`btn-premium ${activeTab === 'ranking' ? 'btn-warning' : 'btn-dark'}`} style={{padding: '6px', fontSize: '11px'}} onClick={() => setActiveTab('ranking')}>Ranking</button>
+    <div className="light-telemetry-panel">
+      <div className="telemetry-header">
+        <h2>Terminal de Telemetria</h2>
       </div>
-
-      <div className="log-container">
+      
+      <div className="telemetry-content">
         
-        {/* TAB: EVENTOS */}
-        {activeTab === 'events' && (
-          <>
-            {/* NOVO: Barra de Ferramentas de Filtros */}
-            <div style={{ display: 'flex', gap: '5px', marginBottom: '10px', flexWrap: 'wrap' }}>
-              <button 
-                className={`btn-premium ${hideCactusDeaths ? 'btn-danger' : 'btn-dark'}`} 
-                style={{ padding: '4px 8px', fontSize: '10px', opacity: hideCactusDeaths ? 0.8 : 1 }}
-                onClick={() => setHideCactusDeaths(!hideCactusDeaths)}
-              >
-                {hideCactusDeaths ? '🚫 Ocultando Cactos' : '🌵 Ocultar Cactos'}
-              </button>
+        {/* NAVEGAÇÃO POR ABAS (TABS) MODERNAS */}
+        <div className="tab-nav-light">
+          <button className={`tab-btn ${activeTab === 'events' ? 'active' : ''}`} onClick={() => setActiveTab('events')}>Log</button>
+          <button className={`tab-btn ${activeTab === 'routes' ? 'active' : ''}`} onClick={() => setActiveTab('routes')}>Rotas Ótimas</button>
+          <button className={`tab-btn ${activeTab === 'ranking' ? 'active' : ''}`} onClick={() => setActiveTab('ranking')}>Ranking</button>
+        </div>
+
+        <div className="log-container-light">
+          
+          {/* TAB: EVENTOS */}
+          {activeTab === 'events' && (
+            <>
+              {/* FILTROS NO ESTILO CARD */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '16px' }}>
+                <button 
+                  className={`card-btn ${hideCactusDeaths ? 'danger' : ''}`} 
+                  style={{ padding: '10px 6px', flexDirection: 'row' }}
+                  onClick={() => setHideCactusDeaths(!hideCactusDeaths)}
+                >
+                  <span style={{ fontSize: '13px' }}>{hideCactusDeaths ? '🚫 Sem Cactos' : '🌵 Ocultar Cactos'}</span>
+                </button>
+                
+                <button 
+                  className={`card-btn ${hideOutOfBounds ? 'danger' : ''}`} 
+                  style={{ padding: '10px 6px', flexDirection: 'row' }}
+                  onClick={() => setHideOutOfBounds(!hideOutOfBounds)}
+                >
+                  <span style={{ fontSize: '13px' }}>{hideOutOfBounds ? '🚫 Sem Quedas' : '🕳️ Ocultar Quedas'}</span>
+                </button>
+              </div>
+
+              {filteredEvents.length === 0 && <p className="empty-state-light">Aguardando eventos...</p>}
               
-              <button 
-                className={`btn-premium ${hideOutOfBounds ? 'btn-danger' : 'btn-dark'}`} 
-                style={{ padding: '4px 8px', fontSize: '10px', opacity: hideOutOfBounds ? 0.8 : 1 }}
-                onClick={() => setHideOutOfBounds(!hideOutOfBounds)}
-              >
-                {hideOutOfBounds ? '🚫 Ocultando Quedas' : '🕳️ Ocultar Quedas'}
-              </button>
+              <div className="events-scroll-area">
+                {filteredEvents.map((evt) => (
+                  <div key={evt.id} className={`log-entry-light ${evt.level.toLowerCase()}`}>
+                    <span className="log-time-light">{new Date().toLocaleTimeString()}</span>
+                    <span className="log-message-light">{evt.message}</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+
+          {/* TAB: ROTAS ÓTIMAS (RouteMemory) */}
+          {activeTab === 'routes' && (
+            <div className="events-scroll-area">
+              {!analytics?.bestRoutes.length && <p className="empty-state-light">Nenhuma rota validada ainda.</p>}
+              {analytics?.bestRoutes.map((route, idx) => (
+                <div key={idx} className="route-card-light">
+                  <div className="route-card-header">
+                    <span className="route-origin">Origem: {route.origin}</span>
+                    <span className="route-steps">{route.steps} Ticks</span>
+                  </div>
+                  <p className="route-agent">Descobridor: <strong>{route.agent}</strong></p>
+                  <div className="route-actions-container">
+                    {route.actions.map((act, i) => (
+                      <span key={i} className="route-action-pill">{act}</span>
+                    ))}
+                  </div>
+                </div>
+              ))}
             </div>
+          )}
 
-            {filteredEvents.length === 0 && <p className="empty-state">Aguardando eventos...</p>}
-            
-            {/* AGORA USAMOS A LISTA FILTRADA! */}
-            {filteredEvents.map((evt) => (
-              <div key={evt.id} className={`log-entry ${evt.level.toLowerCase()}`}>
-                <span className="log-time">{new Date().toLocaleTimeString()}</span>
-                <span className="log-message">{evt.message}</span>
-              </div>
-            ))}
-          </>
-        )}
-
-        {/* TAB: ROTAS ÓTIMAS (RouteMemory) */}
-        {activeTab === 'routes' && (
-          <>
-            {!analytics?.bestRoutes.length && <p className="empty-state">Nenhuma rota validada ainda.</p>}
-            {analytics?.bestRoutes.map((route, idx) => (
-              <div key={idx} style={{ background: 'rgba(0,0,0,0.3)', padding: '10px', borderRadius: '6px', marginBottom: '8px', fontSize: '12px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', color: '#60a5fa', fontWeight: 'bold' }}>
-                  <span>Origem: {route.origin}</span>
-                  <span>{route.steps} Ticks</span>
+          {/* TAB: RANKING DE AGENTES */}
+          {activeTab === 'ranking' && (
+            <div className="events-scroll-area">
+              {!analytics?.leaderboard.length && <p className="empty-state-light">O ranking está vazio.</p>}
+              {analytics?.leaderboard.map((player, idx) => (
+                <div key={idx} className="ranking-card-light">
+                  <div className="ranking-medal">{idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : '🏅'}</div>
+                  <div className="ranking-info">
+                    <p className="ranking-name">{player.name}</p>
+                    <p className="ranking-stats">Sucessos: {player.successes} | Recorde: {player.bestTime} ticks</p>
+                  </div>
                 </div>
-                <p style={{ margin: '5px 0', color: '#94a3b8' }}>Descobridor: <span style={{color: 'white'}}>{route.agent}</span></p>
-                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '5px' }}>
-                  {route.actions.map((act, i) => (
-                    <span key={i} style={{ background: '#2c313c', padding: '2px 6px', borderRadius: '4px', fontSize: '10px' }}>{act}</span>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </>
-        )}
+              ))}
+            </div>
+          )}
 
-        {/* TAB: RANKING DE AGENTES */}
-        {activeTab === 'ranking' && (
-          <>
-            {!analytics?.leaderboard.length && <p className="empty-state">O ranking está vazio.</p>}
-            {analytics?.leaderboard.map((player, idx) => (
-              <div key={idx} style={{ display: 'flex', alignItems: 'center', background: 'rgba(241, 196, 15, 0.1)', border: '1px solid rgba(241, 196, 15, 0.3)', padding: '10px', borderRadius: '6px', marginBottom: '8px' }}>
-                <span style={{ fontSize: '18px', marginRight: '10px' }}>{idx === 0 ? '🥇' : idx === 1 ? '🥈' : '🥉'}</span>
-                <div style={{ flexGrow: 1 }}>
-                  <p style={{ margin: 0, fontWeight: 'bold', fontSize: '13px', color: '#f1c40f' }}>{player.name}</p>
-                  <p style={{ margin: 0, fontSize: '11px', color: '#cbd5e1' }}>Sucessos: {player.successes} | Melhor Tempo: {player.bestTime} ticks</p>
-                </div>
-              </div>
-            ))}
-          </>
-        )}
-
+        </div>
       </div>
     </div>
   );

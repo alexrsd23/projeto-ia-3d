@@ -1,65 +1,306 @@
+/* =========================================
+   SISTEMA DE VARIÁVEIS GLOBAIS (DESIGN SYSTEM)
+========================================= */
+:root {
+  /* Cores de Fundo */
+  --bg-app: #ecf0f1;
+  --bg-panel: #f8fafc;
+  --bg-card: #ffffff;
+  
+  /* Textos e Bordas */
+  --text-main: #334155;
+  --text-muted: #64748b;
+  --text-light: #94a3b8;
+  --text-heading: #0f172a;
+  --border-color: #e2e8f0;
+  --border-focus: #cbd5e1;
+
+  /* Cores de Ação (Azul) */
+  --primary: #3b82f6;
+  --primary-hover: #2563eb;
+  --primary-light: #eff6ff;
+  --primary-border: #bfdbfe;
+
+  /* Cores de Perigo (Vermelho) */
+  --danger: #ef4444;
+  --danger-light: #fff5f5;
+  --danger-border: #fecaca;
+
+  /* Cores de Aviso (Laranja/Amarelo) */
+  --warning: #d97706;
+  --warning-light: #fffbeb;
+  --warning-border: #fde68a;
+
+  /* Cores de Sucesso (Verde) */
+  --success: #10b981;
+  --success-light: #dcfce7;
+
+  /* Geometria */
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.02);
+  --shadow-md: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+/* =========================================
+   RESETS E LAYOUT GLOBAL (FIM DO SCROLLBAR)
+========================================= */
 * {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
 }
 
-body {
+html, body, #root {
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden; /* Trava scrollbars na janela principal */
   font-family: sans-serif;
+  background-color: var(--bg-app);
 }
 
 .app-container {
   display: flex;
   height: 100vh;
   width: 100vw;
-}
-
-.dashboard {
-  width: 300px;
-  background-color: #2c3e50;
-  color: white;
-  padding: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 15px;
-}
-
-.dashboard button {
-  padding: 10px;
-  font-size: 16px;
-  cursor: pointer;
-  background-color: #3498db;
-  color: white;
-  border: none;
-  border-radius: 4px;
-}
-
-.dashboard button:hover {
-  background-color: #2980b9;
+  overflow: hidden;
 }
 
 .viewport {
   flex-grow: 1;
-  background-color: #ecf0f1;
+  position: relative;
+  overflow: hidden;
 }
 
-.identity-panel {
-  margin-top: auto; /* Empurra para o final do dashboard */
-  background-color: #34495e;
-  padding: 15px;
-  border-radius: 8px;
+/* =========================================
+   PAINÉIS PRINCIPAIS (ESQUERDA E DIREITA)
+========================================= */
+.light-dashboard, .light-telemetry-panel {
+  width: 350px;
+  min-width: 350px;
+  height: 100vh;
   display: flex;
   flex-direction: column;
+  background: var(--bg-panel);
+  color: var(--text-main);
+  z-index: 20;
+}
+
+.light-dashboard {
+  border-right: 1px solid var(--border-color);
+  overflow-y: auto; /* Apenas o menu esquerdo pode rolar */
+}
+
+.light-telemetry-panel {
+  border-left: 1px solid var(--border-color);
+}
+
+/* Cabeçalhos dos Painéis */
+.dashboard-header, .telemetry-header {
+  text-align: center;
+  padding: 24px 20px 16px;
+  border-bottom: 1px solid transparent; /* Reservado para telemetria */
+}
+.telemetry-header { border-bottom-color: #f1f5f9; }
+
+.dashboard-header h2, .telemetry-header h2 {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-heading);
+  letter-spacing: -0.5px;
+}
+.telemetry-header h2 { font-size: 18px; }
+
+.subtitle {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--text-light);
+  text-transform: uppercase;
+  font-weight: 600;
+  letter-spacing: 1px;
+}
+
+/* Espaçamento Interno */
+.dashboard-content, .telemetry-content {
+  padding: 0 20px 24px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.telemetry-content {
+  padding-top: 16px;
+  flex-grow: 1;
+  overflow: hidden; /* O conteúdo interno da telemetria é que rola */
+}
+
+/* =========================================
+   COMPONENTES PARTILHADOS (CARDS)
+========================================= */
+.card-btn, .card-panel, .route-card-light, .ranking-card-light, .log-entry-light {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+/* Painéis de Contexto e Inputs */
+.card-panel { padding: 16px; }
+
+.panel-header-flex {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #f1f5f9;
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+}
+
+.panel-title-light {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-heading);
+}
+
+.light-label {
+  display: block;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.light-input {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid var(--border-focus);
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  color: var(--text-main);
+  outline: none;
+  background: var(--bg-card);
+}
+.light-input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(59,130,246,0.15);
+}
+
+.empty-state-light {
+  color: var(--text-light);
+  font-size: 13px;
+  text-align: center;
+  font-style: italic;
+  margin-top: 20px;
+}
+
+/* =========================================
+   BOTÕES E INTERAÇÕES
+========================================= */
+.action-grid { display: flex; flex-wrap: wrap; gap: 12px; }
+
+.card-btn {
+  padding: 16px 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 500;
   gap: 8px;
 }
+.card-btn:hover { border-color: var(--border-focus); box-shadow: var(--shadow-md); transform: translateY(-1px); }
+.card-btn.full { width: 100%; }
+.card-btn.half { width: calc(50% - 6px); }
 
-.identity-panel input {
-  padding: 8px;
-  border-radius: 4px;
+/* Variações de Cores dos Botões Card */
+.card-btn.active-blue { background: var(--primary-light); border-color: var(--primary-border); color: var(--primary); }
+.card-btn.danger { background: var(--danger-light); border-color: var(--danger-border); color: var(--danger); }
+.card-btn.warning { background: var(--warning-light); border-color: var(--warning-border); color: var(--warning); }
+
+.icon-large { font-size: 22px; }
+
+/* Botões de Ação Simples */
+.btn-light-action {
+  width: 100%;
+  padding: 12px;
+  border-radius: var(--radius-md);
   border: none;
+  background: var(--bg-panel);
+  color: var(--text-main);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
 }
+.btn-light-action:hover { background: var(--border-color); }
+.btn-light-action.primary { background: var(--primary); color: white; }
+.btn-light-action.primary:hover { background: var(--primary-hover); }
 
-/* O estilo do balãozinho em cima do boneco */
+.btn-close-light { background: transparent; border: none; color: var(--text-light); cursor: pointer; font-size: 18px; }
+.btn-close-light:hover { color: var(--danger); }
+
+/* Toggle Switches */
+.toggle-container { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+.toggle-switch { position: relative; width: 36px; height: 20px; background: var(--border-focus); border-radius: var(--radius-lg); transition: background 0.3s; }
+.toggle-switch.on { background: var(--primary); }
+.toggle-knob { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; background: #fff; border-radius: 50%; transition: transform 0.3s; box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
+.toggle-switch.on .toggle-knob { transform: translateX(16px); }
+.toggle-label { font-size: 11px; font-weight: 700; min-width: 25px; }
+
+/* Menus Dropdown */
+.dropdown-content-light { max-height: 0; overflow: hidden; transition: max-height 0.3s ease-in-out; border-top: 1px solid var(--border-color); }
+.dropdown-content-light.open { max-height: 220px; }
+.btn-dropdown-item-light { width: 100%; padding: 14px 16px; background: transparent; border: none; color: var(--text-muted); text-align: left; cursor: pointer; font-size: 14px; font-weight: 500; border-bottom: 1px solid #f1f5f9; }
+.btn-dropdown-item-light:hover { background: var(--bg-panel); color: var(--text-heading); }
+
+/* =========================================
+   ELEMENTOS DE TELEMETRIA (LADO DIREITO)
+========================================= */
+.tab-nav-light { display: flex; background: var(--border-color); border-radius: 10px; padding: 4px; margin-bottom: 16px; }
+.tab-btn { flex: 1; background: transparent; border: none; padding: 8px 0; font-size: 13px; font-weight: 600; color: var(--text-muted); border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s; }
+.tab-btn.active { background: var(--bg-card); color: var(--text-heading); box-shadow: var(--shadow-md); }
+
+.log-container-light { flex-grow: 1; display: flex; flex-direction: column; overflow: hidden; }
+.events-scroll-area { flex-grow: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding-right: 4px; }
+
+/* Logs Individuais */
+.log-entry-light { padding: 12px; font-family: monospace; font-size: 12px; border-left-width: 4px; }
+.log-entry-light.info { border-left-color: var(--primary); }
+.log-entry-light.debug { border-left-color: #8b5cf6; }
+.log-entry-light.success { border-left-color: var(--success); }
+.log-entry-light.warning { border-left-color: var(--warning); }
+.log-entry-light.error { border-left-color: var(--danger); }
+.log-time-light { color: var(--text-light); font-weight: 600; display: block; margin-bottom: 4px; font-size: 11px; }
+.log-message-light { color: var(--text-main); word-wrap: break-word; }
+
+/* Cartões de Rotas e Rankings */
+.route-card-light { padding: 14px; }
+.route-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.route-origin { font-weight: 700; color: var(--primary); font-size: 13px; }
+.route-steps { background: #f1f5f9; padding: 4px 8px; border-radius: var(--radius-lg); font-size: 11px; font-weight: 700; color: var(--text-muted); }
+.route-agent { font-size: 12px; color: var(--text-muted); margin: 0 0 10px 0; }
+.route-actions-container { display: flex; flex-wrap: wrap; gap: 6px; }
+.route-action-pill { background: var(--bg-panel); border: 1px solid var(--border-color); padding: 4px 8px; border-radius: 6px; font-size: 10px; font-weight: 600; color: var(--text-muted); }
+
+.ranking-card-light { display: flex; align-items: center; background: var(--warning-light); border: 1px solid var(--warning-border); padding: 12px; }
+.ranking-medal { font-size: 24px; margin-right: 12px; }
+.ranking-info { flex-grow: 1; }
+.ranking-name { margin: 0 0 2px 0; font-weight: 700; font-size: 14px; color: #b45309; }
+.ranking-stats { margin: 0; font-size: 11px; color: var(--warning); font-weight: 500; }
+
+/* Status de Terrenos (Esquerda) */
+.status-row { display: flex; align-items: center; font-size: 13px; color: var(--text-muted); margin-top: 10px; gap: 8px; }
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.dot.orange { background: var(--warning); }
+.dot.green { background: var(--success); }
+
+.warning-box-light { background: var(--warning-light); border: 1px solid var(--warning-border); color: #b45309; padding: 12px; border-radius: var(--radius-md); font-size: 13px; display: flex; align-items: center; gap: 8px; }
+
+/* =========================================
+   OVERLAYS 3D E DIAGNÓSTICOS DA IA
+========================================= */
 .name-bubble {
   background: white;
   color: black;
@@ -67,330 +308,19 @@ body {
   border-radius: 12px;
   font-weight: bold;
   font-size: 14px;
-  box-shadow: 0px 4px 6px rgba(0,0,0,0.3);
-  pointer-events: none; /* Para não atrapalhar o clique no boneco */
+  box-shadow: var(--shadow-md);
+  pointer-events: none;
   white-space: nowrap;
 }
 
-/* Event Log Right Sidebar */
-.event-log-panel {
-  width: 300px;
-  background-color: #1e272e;
-  color: white;
-  padding: 20px;
-  display: flex;
-  flex-direction: column;
-}
-.log-container {
-  flex-grow: 1;
-  overflow-y: auto;
-  margin-top: 15px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.log-entry {
-  font-family: monospace;
-  font-size: 12px;
-  padding: 8px;
-  border-radius: 4px;
-  background: rgba(255,255,255,0.05);
-}
-.log-entry.info { border-left: 4px solid #3498db; }
-.log-entry.warning { border-left: 4px solid #f1c40f; color: #f1c40f; }
-.log-entry.error { border-left: 4px solid #e74c3c; color: #e74c3c; }
-.log-time { color: #95a5a6; margin-right: 8px; }
-
-/* Neural Network Overlay */
 .nn-visualizer {
   position: absolute;
   top: 20px;
   left: 20px;
   background: rgba(0, 0, 0, 0.7);
   padding: 15px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   border: 1px solid #333;
-  pointer-events: none; /* Para não bloquear cliques na câmera */
+  pointer-events: none;
   z-index: 10;
-}
-.nn-node {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  border: 2px solid white;
-  background: black;
-  box-shadow: 0 0 5px rgba(255,255,255,0.2);
-}
-.nn-node.active { background: #e67e22; box-shadow: 0 0 10px #e67e22; }
-.nn-node.firing { background: #ff0000; box-shadow: 0 0 15px #ff0000; border-color: #ff0000; }
-
-/* =========================================
-   ESTILOS PREMIUM DO DASHBOARD
-========================================= */
-
-.app-container {
-  display: flex;
-  height: 100vh;
-  overflow: hidden;
-  background-color: #0f1115;
-}
-
-.premium-dashboard {
-  width: 340px;
-  min-width: 340px;
-  height: 100vh;
-  display: flex;
-  flex-direction: column;
-  background: #181b21;
-  border-right: 1px solid #2e303a;
-  box-shadow: 4px 0 20px rgba(0, 0, 0, 0.4);
-  color: #e2e8f0;
-  z-index: 20;
-}
-
-/* Divisão 60% Topo */
-.dashboard-top {
-  flex: 0 0 55%; /* Aproximadamente 60% */
-  padding: 24px;
-  overflow-y: auto;
-  border-bottom: 2px solid #232730;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-/* Divisão 40% Fundo */
-.dashboard-bottom {
-  flex: 1; /* Ocupa o restante (aprox 40%) */
-  padding: 24px;
-  overflow-y: auto;
-  background: #13151a;
-}
-
-/* Textos e Títulos */
-.dashboard-header h2 {
-  margin: 0;
-  font-size: 22px;
-  font-weight: 600;
-  color: #ffffff;
-  letter-spacing: 0.5px;
-}
-
-.subtitle {
-  margin: 4px 0 16px 0;
-  font-size: 13px;
-  color: #94a3b8;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-}
-
-.panel-title {
-  font-size: 16px;
-  color: #f8fafc;
-  margin-bottom: 12px;
-  border-bottom: 1px solid #2e303a;
-  padding-bottom: 8px;
-}
-
-/* Botões Genéricos */
-.action-group {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.btn-premium {
-  width: 100%;
-  padding: 12px 16px;
-  border: none;
-  border-radius: 8px;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-}
-
-.btn-premium:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-}
-
-.btn-premium:active {
-  transform: translateY(0);
-}
-
-/* Cores dos Botões */
-.btn-success { background: linear-gradient(135deg, #10b981, #059669); color: white; }
-.btn-danger { background: linear-gradient(135deg, #ef4444, #dc2626); color: white; }
-.btn-warning { background: linear-gradient(135deg, #f59e0b, #d97706); color: white; }
-.btn-dark { background: linear-gradient(135deg, #334155, #1e293b); color: white; }
-.btn-action { background: linear-gradient(135deg, #3b82f6, #2563eb); color: white; }
-.btn-farm { background: linear-gradient(135deg, #d97706, #b45309); color: white; }
-
-/* Menu Dropdown de Adição */
-.dropdown-section {
-  margin-top: 10px;
-}
-
-.btn-dropdown-toggle {
-  background: #272a35;
-  color: #cbd5e1;
-  justify-content: space-between;
-  border: 1px solid #3f4455;
-}
-
-.btn-dropdown-toggle.active {
-  border-bottom-left-radius: 0;
-  border-bottom-right-radius: 0;
-  background: #333846;
-}
-
-.dropdown-content {
-  max-height: 0;
-  overflow: hidden;
-  transition: max-height 0.3s ease-in-out;
-  background: #1e2128;
-  border: 1px solid #3f4455;
-  border-top: none;
-  border-bottom-left-radius: 8px;
-  border-bottom-right-radius: 8px;
-}
-
-.dropdown-content.open {
-  max-height: 200px; /* Suficiente para os botões */
-}
-
-.btn-dropdown-item {
-  width: 100%;
-  padding: 12px 16px;
-  background: transparent;
-  border: none;
-  color: #94a3b8;
-  text-align: left;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  transition: background 0.2s, color 0.2s;
-}
-
-.btn-dropdown-item .icon {
-  font-size: 16px;
-  background: #2c313c;
-  padding: 4px 8px;
-  border-radius: 6px;
-}
-
-.btn-dropdown-item:hover {
-  background: #2a2e39;
-  color: #ffffff;
-}
-
-/* Painéis Secundários (40%) */
-.context-panel {
-  background: #1e2128;
-  padding: 16px;
-  border-radius: 12px;
-  border: 1px solid #2e303a;
-  animation: fadeIn 0.3s ease;
-}
-
-.farm-panel {
-  background: rgba(39, 174, 96, 0.1);
-  border: 1px solid rgba(39, 174, 96, 0.3);
-}
-
-.panel-header-flex {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.btn-close-small {
-  background: transparent;
-  border: none;
-  color: #94a3b8;
-  cursor: pointer;
-  font-size: 16px;
-}
-
-.btn-close-small:hover { color: #ef4444; }
-
-/* Status, Inputs e Textos */
-.status-badge {
-  background: #111827;
-  padding: 12px;
-  border-radius: 8px;
-  margin-bottom: 16px;
-  font-size: 13px;
-  color: #cbd5e1;
-}
-
-.stats-row {
-  display: flex;
-  gap: 16px;
-  margin-top: 8px;
-  font-weight: 600;
-}
-
-.id-tag {
-  color: #60a5fa;
-  font-family: monospace;
-}
-
-.premium-label {
-  display: block;
-  font-size: 12px;
-  color: #94a3b8;
-  margin-bottom: 6px;
-  margin-top: 12px;
-}
-
-.premium-input {
-  width: 100%;
-  padding: 10px;
-  background: #0f1115;
-  border: 1px solid #3f4455;
-  border-radius: 6px;
-  color: white;
-  font-size: 14px;
-  outline: none;
-  box-sizing: border-box;
-}
-
-.premium-input:focus {
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
-}
-
-.empty-state {
-  color: #64748b;
-  font-size: 13px;
-  text-align: center;
-  font-style: italic;
-  margin-top: 20px;
-}
-
-.flex-row {
-  display: flex;
-  gap: 10px;
-  margin-top: 10px;
-}
-
-.warning-text {
-  color: #fbbf24;
-  font-size: 13px;
-  background: rgba(251, 191, 36, 0.1);
-  padding: 8px;
-  border-radius: 6px;
-  margin-top: 8px;
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(5px); }
-  to { opacity: 1; transform: translateY(0); }
 }

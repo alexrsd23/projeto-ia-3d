@@ -23,8 +23,8 @@ interface DashboardProps {
   setRouteBounds: (bounds: RouteBounds) => void;
   onKillAllAgents: () => void;
   onClearAIMemory: () => void;
-  showNames: boolean; // NOVO
-  onToggleShowNames: () => void; // NOVO
+  showNames: boolean;
+  onToggleShowNames: () => void;
 }
 
 export default function Dashboard({
@@ -38,8 +38,6 @@ export default function Dashboard({
   const [name, setName] = useState('');
   const [birthdate, setBirthdate] = useState('');
   const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
-  
-  // NOVO: Estado para guardar o número digitado na caixa
   const [spawnAmount, setSpawnAmount] = useState<number>(1);
 
   useEffect(() => {
@@ -50,165 +48,183 @@ export default function Dashboard({
   }, [selectedEntity]);
 
   return (
-    <div className="premium-dashboard">
+    <div className="light-dashboard">
       
-      <div className="dashboard-top">
-        <div className="dashboard-header">
-          <h2>Painel de Controlo</h2>
-          <p className="subtitle">Simulador IA 3D</p>
+      <div className="dashboard-header">
+        <h2>Painel de Controle</h2>
+        <p className="subtitle">SIMULADOR IA 3D</p>
+      </div>
+
+      <div className="dashboard-content">
+        
+        {/* === GRID DE BOTÕES DE AÇÃO === */}
+        <div className="action-grid">
+          
+          <button className="card-btn full" onClick={onToggleSimulation}>
+            <span className="icon-large">{isRunning ? '⏸' : '▷'}</span>
+            <span>{isRunning ? 'Pausar Simulação' : 'Iniciar Simulação'}</span>
+          </button>
+
+          <button className="card-btn half" onClick={onToggleDayNight}>
+            <span className="icon-large">{isDay ? '🌙' : '☀️'}</span>
+            <span>{isDay ? 'Mudar para Noite' : 'Mudar para Dia'}</span>
+          </button>
+
+          <button className={`card-btn half ${isRouteTestingMode ? 'active-blue' : ''}`} onClick={onToggleRouteTesting}>
+            <span className="icon-large">📍</span>
+            <span>Modo Teste de Rotas</span>
+            <div className="toggle-container">
+              <div className={`toggle-switch ${isRouteTestingMode ? 'on' : ''}`}>
+                <div className="toggle-knob"></div>
+              </div>
+              <span className="toggle-label">{isRouteTestingMode ? 'ON' : 'OFF'}</span>
+            </div>
+          </button>
+
+          <button className="card-btn full" onClick={onToggleShowNames}>
+            <span className="icon-large">👁️</span>
+            <span>Nomes Visíveis</span>
+            <div className="toggle-container">
+              <div className={`toggle-switch ${showNames ? 'on' : ''}`}>
+                <div className="toggle-knob"></div>
+              </div>
+              <span className="toggle-label">{showNames ? 'ON' : 'OFF'}</span>
+            </div>
+          </button>
+
+          <button className="card-btn half danger" onClick={onKillAllAgents}>
+            <span className="icon-large">💀</span>
+            <span>Expurgo: Matar Agentes</span>
+          </button>
+
+          <button className="card-btn half warning" onClick={onClearAIMemory}>
+            <span className="icon-large">⌫</span>
+            <span>Amnésia: Limpar Memória IA</span>
+          </button>
+
         </div>
 
-       <div className="action-group">
-          <button className={`btn-premium ${isRunning ? 'btn-danger' : 'btn-success'}`} onClick={onToggleSimulation}>
-            {isRunning ? '⏸ Pausar Simulação' : '▶️ Iniciar Simulação'}
-          </button>
-
-          <button className={`btn-premium ${isDay ? 'btn-warning' : 'btn-dark'}`} onClick={onToggleDayNight}>
-            {isDay ? '🌙 Mudar para Noite' : '☀️ Mudar para Dia'}
-          </button>
-
-          <button className={`btn-premium ${isRouteTestingMode ? 'btn-action' : 'btn-dark'}`} onClick={onToggleRouteTesting}>
-            {isRouteTestingMode ? '📍 Modo Teste de Rotas: ON' : '📍 Modo Teste de Rotas: OFF'}
-          </button>
-
-          {/* NOVO: BOTÃO DE MOSTRAR/OCULTAR NOMES */}
-          <button className={`btn-premium ${showNames ? 'btn-success' : 'btn-dark'}`} onClick={onToggleShowNames}>
-            {showNames ? '🏷️ Nomes Visíveis: ON' : '🏷️ Nomes Visíveis: OFF'}
-          </button>
-
-          {/* O NOVO BOTÃO DE EXPURGO */}
-          <button className="btn-premium btn-danger" onClick={onKillAllAgents} style={{ marginTop: '10px', border: '1px solid #ff4d4d' }}>
-            ☠️ Expurgo: Matar Agentes
-          </button>
-
-          {/* O NOVO BOTÃO DE AMNÉSIA */}
-          <button className="btn-premium btn-warning" onClick={onClearAIMemory} style={{ marginTop: '5px', border: '1px solid #f39c12' }}>
-            🧠 Amnésia: Limpar Memória IA
-          </button>
-        </div>
-
-        {/* NOVO: CONFIGURAÇÃO DE COORDENADAS (Só aparece se o modo estiver ativo) */}
+        {/* === ÁREA DE SPAWN (Só visível se modo de teste ON) === */}
         {isRouteTestingMode && (
-          <div style={{ background: 'rgba(0,0,0,0.2)', padding: '12px', borderRadius: '8px', marginTop: '10px', border: '1px solid #3f4455' }}>
-            <h4 style={{ margin: '0 0 10px 0', fontSize: '13px', color: '#cbd5e1' }}>Área de Spawn (Grid: 2x2)</h4>
+          <div className="card-panel" style={{ marginTop: '0' }}>
+            <div style={{ textAlign: 'center', marginBottom: '15px' }}>
+              <span className="icon-large" style={{ color: '#64748b' }}>▦</span>
+              <p className="panel-title-light" style={{ margin: '4px 0 2px' }}>Área de Spawn</p>
+              <p style={{ fontSize: '12px', color: '#94a3b8' }}>(Grid: 2x2)</p>
+            </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
               <div>
-                <label className="premium-label" style={{marginTop: 0}}>X Mínimo</label>
-                <input type="number" step="2" className="premium-input" value={routeBounds.xMin} onChange={e => setRouteBounds({...routeBounds, xMin: Number(e.target.value)})} />
+                <label className="light-label">X Mínimo</label>
+                <input type="number" step="2" className="light-input" value={routeBounds.xMin} onChange={e => setRouteBounds({...routeBounds, xMin: Number(e.target.value)})} />
               </div>
               <div>
-                <label className="premium-label" style={{marginTop: 0}}>X Máximo</label>
-                <input type="number" step="2" className="premium-input" value={routeBounds.xMax} onChange={e => setRouteBounds({...routeBounds, xMax: Number(e.target.value)})} />
+                <label className="light-label">X Máximo</label>
+                <input type="number" step="2" className="light-input" value={routeBounds.xMax} onChange={e => setRouteBounds({...routeBounds, xMax: Number(e.target.value)})} />
               </div>
               <div>
-                <label className="premium-label" style={{marginTop: 0}}>Z Mínimo</label>
-                <input type="number" step="2" className="premium-input" value={routeBounds.zMin} onChange={e => setRouteBounds({...routeBounds, zMin: Number(e.target.value)})} />
+                <label className="light-label">Z Mínimo</label>
+                <input type="number" step="2" className="light-input" value={routeBounds.zMin} onChange={e => setRouteBounds({...routeBounds, zMin: Number(e.target.value)})} />
               </div>
               <div>
-                <label className="premium-label" style={{marginTop: 0}}>Z Máximo</label>
-                <input type="number" step="2" className="premium-input" value={routeBounds.zMax} onChange={e => setRouteBounds({...routeBounds, zMax: Number(e.target.value)})} />
+                <label className="light-label">Z Máximo</label>
+                <input type="number" step="2" className="light-input" value={routeBounds.zMax} onChange={e => setRouteBounds({...routeBounds, zMax: Number(e.target.value)})} />
               </div>
             </div>
           </div>
         )}
 
-        <div className="dropdown-section">
-          <button className={`btn-premium btn-dropdown-toggle ${isAddMenuOpen ? 'active' : ''}`} onClick={() => setIsAddMenuOpen(!isAddMenuOpen)}>
+        {/* === MENU DE ADICIONAR ENTIDADES === */}
+        <div className="card-panel" style={{ padding: '0', overflow: 'hidden' }}>
+          <button className="btn-light-action" style={{ borderRadius: isAddMenuOpen ? '12px 12px 0 0' : '12px', padding: '15px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} onClick={() => setIsAddMenuOpen(!isAddMenuOpen)}>
             <span>➕ Adicionar Entidades</span>
-            <span className="arrow">{isAddMenuOpen ? '▲' : '▼'}</span>
+            <span style={{ fontSize: '12px', color: '#94a3b8' }}>{isAddMenuOpen ? '▲' : '▼'}</span>
           </button>
           
-          <div className={`dropdown-content ${isAddMenuOpen ? 'open' : ''}`}>
-            
-            {/* NOVO: Caixa de input de Quantidade */}
-            <div style={{ padding: '8px', borderBottom: '1px solid #3f4455', display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'space-between' }}>
-              <label className="premium-label" style={{ margin: 0, fontSize: '13px' }}>Quantidade:</label>
-              <input 
-                type="number" 
-                min="1" 
-                max="200" 
-                className="premium-input" 
-                style={{ width: '60px', padding: '4px', margin: 0, textAlign: 'center' }}
-                value={spawnAmount} 
-                onChange={(e) => setSpawnAmount(Math.max(1, Number(e.target.value)))} 
-              />
+          <div className={`dropdown-content-light ${isAddMenuOpen ? 'open' : ''}`}>
+            <div style={{ padding: '12px 16px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <label className="light-label" style={{ margin: 0 }}>Quantidade:</label>
+              <input type="number" min="1" max="200" className="light-input" style={{ width: '60px', padding: '4px', margin: 0, textAlign: 'center' }} value={spawnAmount} onChange={(e) => setSpawnAmount(Math.max(1, Number(e.target.value)))} />
             </div>
-
-            {/* ATUALIZADO: Os botões agora enviam a quantidade escolhida */}
-            <button className="btn-dropdown-item" onClick={() => onAddEntity('character', spawnAmount)}>
-              <span className="icon">👤⁺</span> Adicionar Pessoa(s)
-            </button>
-            <button className="btn-dropdown-item" onClick={() => onAddEntity('house', spawnAmount)}>
-              <span className="icon">🏠⁺</span> Adicionar Casa(s)
-            </button>
-            <button className="btn-dropdown-item" onClick={() => onAddEntity('cactus', spawnAmount)}>
-              <span className="icon">🌵⁺</span> Adicionar Cacto(s)
-            </button>
+            <button className="btn-dropdown-item-light" onClick={() => onAddEntity('character', spawnAmount)}>👤⁺ Adicionar Pessoa(s)</button>
+            <button className="btn-dropdown-item-light" onClick={() => onAddEntity('house', spawnAmount)}>🏠⁺ Adicionar Casa(s)</button>
+            <button className="btn-dropdown-item-light" onClick={() => onAddEntity('cactus', spawnAmount)}>🌵⁺ Adicionar Cacto(s)</button>
           </div>
         </div>
-      </div>
 
-      <div className="dashboard-bottom">
+        {/* === INFORMAÇÃO DA ENTIDADE === */}
         {!selectedTile && (
-          <div className="context-panel">
-            <h3 className="panel-title">Informação da Entidade</h3>
+          <div className="card-panel">
+            <h3 className="panel-title-light">Informação da Entidade</h3>
             {selectedEntity ? (
               selectedEntity.type === 'character' ? (
-                <div className="form-group">
-                  <div className="status-badge">
-                    <span className="id-tag">ID: {selectedEntity.id.split('-')[0]}</span>
-                    <div className="stats-row">
+                <div style={{ marginTop: '15px' }}>
+                  <div style={{ background: '#f8fafc', padding: '10px', borderRadius: '8px', marginBottom: '15px', border: '1px solid #e2e8f0', fontSize: '13px' }}>
+                    <span style={{ color: '#3b82f6', fontWeight: 600, fontFamily: 'monospace' }}>ID: {selectedEntity.id.split('-')[0]}</span>
+                    <div style={{ display: 'flex', gap: '15px', marginTop: '8px', color: '#475569', fontWeight: 600 }}>
                       <span>❤️ {selectedEntity.health ?? 'N/A'}</span>
                       <span>🍗 {selectedEntity.hunger ?? 'N/A'}</span>
                     </div>
                   </div>
-                  <label className="premium-label">Nome:</label>
-                  <input className="premium-input" value={name} onChange={(e) => setName(e.target.value)} />
-                  <label className="premium-label">Data de Nascimento:</label>
-                  <input className="premium-input" type="date" value={birthdate} onChange={(e) => setBirthdate(e.target.value)} />
-                  <button className="btn-premium btn-action" style={{marginTop: '15px'}} onClick={() => onSaveIdentity(selectedEntity.id, name, birthdate)}>
+                  <label className="light-label">Nome:</label>
+                  <input className="light-input" style={{ marginBottom: '10px' }} value={name} onChange={(e) => setName(e.target.value)} />
+                  <label className="light-label">Data de Nascimento:</label>
+                  <input className="light-input" type="date" value={birthdate} onChange={(e) => setBirthdate(e.target.value)} />
+                  <button className="btn-light-action primary" style={{ marginTop: '15px' }} onClick={() => onSaveIdentity(selectedEntity.id, name, birthdate)}>
                     💾 Guardar Alterações
                   </button>
                 </div>
               ) : (
-                <p className="empty-state">Estruturas (Casas/Cactos) não possuem atributos editáveis.</p>
+                <p className="empty-state-light">Estruturas (Casas/Cactos) não possuem atributos editáveis.</p>
               )
             ) : (
-              <p className="empty-state">Selecione uma entidade no cenário 3D.</p>
+              <p className="empty-state-light">Selecione uma entidade no cenário 3D.</p>
             )}
           </div>
         )}
 
+        {/* === TERRENO SELECIONADO === */}
         {selectedTile && (
-          <div className="context-panel farm-panel">
+          <div className="card-panel">
             <div className="panel-header-flex">
-              <h3 className="panel-title">Terreno Selecionado</h3>
-              <button className="btn-close-small" onClick={onDeselectTile}>✕</button>
+              <h3 className="panel-title-light">Terreno Selecionado</h3>
+              <button className="btn-close-light" onClick={onDeselectTile}>✕</button>
             </div>
-            <div className="status-badge">
-              <p><strong>Tipo:</strong> {selectedTile.type === 'grass' ? '🌱 Grama Selvagem' : '🟤 Terra Arada'}</p>
-              <p><strong>Coord:</strong> X:{selectedTile.gridX} | Z:{selectedTile.gridZ}</p>
+            
+            <div className="status-row">
+              <span style={{color: '#94a3b8'}}>Tipo:</span> 
+              <span className={`dot ${selectedTile.type === 'grass' ? 'green' : 'orange'}`}></span> 
+              <span style={{fontWeight: 600}}>{selectedTile.type === 'grass' ? 'Grama Selvagem' : 'Terra Arada'}</span>
             </div>
+            <div className="status-row">
+              <span style={{color: '#94a3b8'}}>Coord:</span> 
+              <span style={{fontWeight: 600, fontFamily: 'monospace'}}>X:{selectedTile.gridX} | Z:{selectedTile.gridZ}</span>
+            </div>
+
             {selectedTile.type === 'grass' ? (
-              <div className="action-box">
-                <p>Deseja arar esta terra?</p>
-                <div className="flex-row">
-                  <button className="btn-premium btn-success" onClick={() => onPlow(selectedTile.id)}>✅ Sim</button>
-                  <button className="btn-premium btn-danger" onClick={onDeselectTile}>❌ Não</button>
+              <div style={{ marginTop: '20px' }}>
+                <p style={{ fontSize: '13px', fontWeight: 600, marginBottom: '10px' }}>Deseja arar esta terra?</p>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <button className="btn-light-action" style={{ background: '#dcfce7', color: '#059669' }} onClick={() => onPlow(selectedTile.id)}>✅ Sim</button>
+                  <button className="btn-light-action" style={{ background: '#fee2e2', color: '#dc2626' }} onClick={onDeselectTile}>❌ Não</button>
                 </div>
               </div>
             ) : (
-              <div className="action-box">
-                <p>Plantação ({selectedTile.crops.length}/2)</p>
+              <div style={{ marginTop: '20px' }}>
+                <p style={{ fontSize: '14px', fontWeight: 700, marginBottom: '10px' }}>Plantação ({selectedTile.crops.length}/2)</p>
                 {selectedTile.crops.length < 2 ? (
-                  <button className="btn-premium btn-farm" onClick={() => onPlant(selectedTile.id)}>🥔 Plantar Batata</button>
+                  <button className="btn-light-action" style={{ background: '#fef3c7', color: '#b45309', border: '1px solid #fde68a' }} onClick={() => onPlant(selectedTile.id)}>
+                    🥔 Plantar Batata
+                  </button>
                 ) : (
-                  <p className="warning-text">⚠️ Capacidade máxima atingida.</p>
+                  <div className="warning-box-light">
+                    <span>⚠️</span> Capacidade máxima atingida.
+                  </div>
                 )}
               </div>
             )}
           </div>
         )}
+
       </div>
     </div>
   );
