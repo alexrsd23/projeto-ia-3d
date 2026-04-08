@@ -6,7 +6,7 @@ interface RouteBounds {
 }
 
 interface DashboardProps {
-  onAddEntity: (type: 'house' | 'character' | 'cactus') => void;
+  onAddEntity: (type: 'house' | 'character' | 'cactus', amount?: number) => void;
   isRunning: boolean;
   onToggleSimulation: () => void;
   selectedEntity: Entity | undefined;
@@ -37,6 +37,9 @@ export default function Dashboard({
   const [name, setName] = useState('');
   const [birthdate, setBirthdate] = useState('');
   const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
+  
+  // NOVO: Estado para guardar o número digitado na caixa
+  const [spawnAmount, setSpawnAmount] = useState<number>(1);
 
   useEffect(() => {
     if (selectedEntity) {
@@ -110,14 +113,30 @@ export default function Dashboard({
           </button>
           
           <div className={`dropdown-content ${isAddMenuOpen ? 'open' : ''}`}>
-            <button className="btn-dropdown-item" onClick={() => onAddEntity('character')}>
-              <span className="icon">👤⁺</span> Adicionar Pessoa
+            
+            {/* NOVO: Caixa de input de Quantidade */}
+            <div style={{ padding: '8px', borderBottom: '1px solid #3f4455', display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'space-between' }}>
+              <label className="premium-label" style={{ margin: 0, fontSize: '13px' }}>Quantidade:</label>
+              <input 
+                type="number" 
+                min="1" 
+                max="200" 
+                className="premium-input" 
+                style={{ width: '60px', padding: '4px', margin: 0, textAlign: 'center' }}
+                value={spawnAmount} 
+                onChange={(e) => setSpawnAmount(Math.max(1, Number(e.target.value)))} 
+              />
+            </div>
+
+            {/* ATUALIZADO: Os botões agora enviam a quantidade escolhida */}
+            <button className="btn-dropdown-item" onClick={() => onAddEntity('character', spawnAmount)}>
+              <span className="icon">👤⁺</span> Adicionar Pessoa(s)
             </button>
-            <button className="btn-dropdown-item" onClick={() => onAddEntity('house')}>
-              <span className="icon">🏠⁺</span> Adicionar Casa
+            <button className="btn-dropdown-item" onClick={() => onAddEntity('house', spawnAmount)}>
+              <span className="icon">🏠⁺</span> Adicionar Casa(s)
             </button>
-            <button className="btn-dropdown-item" onClick={() => onAddEntity('cactus')}>
-              <span className="icon">🌵⁺</span> Adicionar Cacto
+            <button className="btn-dropdown-item" onClick={() => onAddEntity('cactus', spawnAmount)}>
+              <span className="icon">🌵⁺</span> Adicionar Cacto(s)
             </button>
           </div>
         </div>

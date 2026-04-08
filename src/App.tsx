@@ -20,10 +20,10 @@ export default function App() {
   const [selectedTileId, setSelectedTileId] = useState<string | null>(null);
 
   // MODO DE TESTE DE ROTAS
-  const [isRouteTestingMode, setIsRouteTestingMode] = useState(false);
-  const [routeBounds, setRouteBounds] = useState({ xMin: -24, xMax: -16, zMin: 16, zMax: 24 });
+  const [isRouteTestingMode, setIsRouteTestingMode] = useState(true);
+  const [routeBounds, setRouteBounds] = useState({ xMin: -24, xMax: -24, zMin: 24, zMax: 24 });
 
-  const [showNames, setShowNames] = useState(true);
+  const [showNames, setShowNames] = useState(false);
 
   const isProcessingTick = useRef(false);
 
@@ -122,7 +122,7 @@ export default function App() {
             if (tickData.heatmap) setHeatmap(tickData.heatmap);
             if (tickData.lastAction !== undefined) setLastNNAction(tickData.lastAction);
             if (tickData.events && tickData.events.length > 0) {
-              setEvents(prev => [...tickData.events, ...prev].slice(0, 20));
+              setEvents(prev => [...tickData.events, ...prev].slice(0, 2000));
             }
           }
           const responseEntities = await fetch('http://127.0.0.1:8000/api/entities');
@@ -147,67 +147,79 @@ export default function App() {
 
 
   // ========================================================
-  // SPAWN CONTROLLER REFINADO (COM VALIDADOR DE ESPAÇO)
+  // SPAWN CONTROLLER REFINADO (GERAÇÃO EM MASSA)
   // ========================================================
-  const handleAddEntity = async (type: 'house' | 'character' | 'cactus') => {
-    let snapX = 0;
-    let snapZ = 0;
-    let validPositionFound = false;
-    let attempts = 0;
+  const handleAddEntity = async (type: 'house' | 'character' | 'cactus', amount: number = 1) => {
+    const newEntities: Entity[] = [];
+    const fetchPromises: Promise<any>[] = [];
 
-    // Se for o Modo Teste, garante que nasce dentro dos Bounds e em célula vazia
-    if (isRouteTestingMode && type === 'character') {
-      while (!validPositionFound && attempts < 50) {
-        const rawX = Math.random() * (routeBounds.xMax - routeBounds.xMin) + routeBounds.xMin;
-        const rawZ = Math.random() * (routeBounds.zMax - routeBounds.zMin) + routeBounds.zMin;
-        
-        // Alinhamento exato na grid
+    // Repete a lógica de nascimento 'amount' vezes
+    for (let i = 0; i < amount; i++) {
+      let snapX = 0;
+      let snapZ = 0;
+      let validPositionFound = false;
+      let attempts = 0;
+
+      if (isRouteTestingMode && type === 'character') {
+        while (!validPositionFound && attempts < 50) {
+          const rawX = Math.random() * (routeBounds.xMax - routeBounds.xMin) + routeBounds.xMin;
+          const rawZ = Math.random() * (routeBounds.zMax - routeBounds.zMin) + routeBounds.zMin;
+          
+          snapX = Math.round(rawX / 2) * 2;
+          snapZ = Math.round(rawZ / 2) * 2;
+          snapX = Math.max(routeBounds.xMin, Math.min(routeBounds.xMax, snapX));
+          snapZ = Math.max(routeBounds.zMin, Math.min(routeBounds.zMax, snapZ));
+
+          // Validador: Olha para os que já existem E para os que acabaram de ser gerados neste loop
+          const isOccupied = entities.some(e => e.position[0] === snapX && e.position[2] === snapZ) ||
+                             newEntities.some(e => e.position[0] === snapX && e.position[2] === snapZ);
+          
+          if (!isOccupied) validPositionFound = true;
+          attempts++;
+        }
+      } 
+      else {
+        const rawX = (Math.random() - 0.5) * 20;
+        const rawZ = (Math.random() - 0.5) * 20;
         snapX = Math.round(rawX / 2) * 2;
         snapZ = Math.round(rawZ / 2) * 2;
-        
-        // Clamp de segurança
-        snapX = Math.max(routeBounds.xMin, Math.min(routeBounds.xMax, snapX));
-        snapZ = Math.max(routeBounds.zMin, Math.min(routeBounds.zMax, snapZ));
-
-        // Validador: Verifica se já tem alguém ou obstáculo naquela coordenada exata
-        const isOccupied = entities.some(e => e.position[0] === snapX && e.position[2] === snapZ);
-        if (!isOccupied) {
-          validPositionFound = true;
-        }
-        attempts++;
       }
-    } 
-    // Comportamento normal
-    else {
-      const rawX = (Math.random() - 0.5) * 20;
-      const rawZ = (Math.random() - 0.5) * 20;
-      snapX = Math.round(rawX / 2) * 2;
-      snapZ = Math.round(rawZ / 2) * 2;
+
+      const positionY = type === 'house' ? 0.5 : (type === 'cactus' ? -0.5 : 0.5);
+      const randomNameNumber = Math.floor(Math.random() * 90) + 10;
+
+      const newEntity: Entity = {
+        id: crypto.randomUUID(),
+        type: type,
+        position: [snapX, positionY, snapZ],
+        ...(type === 'character' && {
+          name: `Agente ${randomNameNumber}`,
+          health: CHARACTER_SETTINGS.defaultHealth,
+          hunger: CHARACTER_SETTINGS.defaultHunger,
+        })
+      };
+
+      newEntities.push(newEntity);
+
+      // Prepara o disparo para o banco de dados
+      fetchPromises.push(
+        fetch('http://127.0.0.1:8000/api/entities', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(newEntity),
+        })
+      );
     }
 
-    const positionY = type === 'house' ? 0.5 : (type === 'cactus' ? -0.5 : 0.5);
-    const randomNameNumber = Math.floor(Math.random() * 90) + 10;
+    // Coloca todos na tela de uma vez só!
+    setEntities((prev) => [...prev, ...newEntities]);
 
-    const newEntity: Entity = {
-      id: crypto.randomUUID(),
-      type: type,
-      position: [snapX, positionY, snapZ],
-      ...(type === 'character' && {
-        name: `Agente ${randomNameNumber}`,
-        health: CHARACTER_SETTINGS.defaultHealth,
-        hunger: CHARACTER_SETTINGS.defaultHunger,
-      })
-    };
-
-    setEntities((prev) => [...prev, newEntity]);
-
+    // Envia todos para o Neo4j simultaneamente (Promise.all é muito mais rápido que esperar um a um)
     try {
-      await fetch('http://127.0.0.1:8000/api/entities', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newEntity),
-      });
-    } catch (error) { console.error(error); }
+      await Promise.all(fetchPromises);
+    } catch (error) { 
+      console.error("Erro ao gerar entidades em massa:", error); 
+    }
   };
 
   // ========================================================

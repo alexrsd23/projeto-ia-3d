@@ -39,33 +39,30 @@ def simulate_tick():
 
             # 3. Lógica dos Agentes
             for char in characters:
+                target = (0.0, 0.0) if not potatoes else min(potatoes, key=lambda p: math.hypot(p[0]-char['x'], p[1]-char['z']))
+                dist_to_target = math.hypot(target[0]-char['x'], target[1]-char['z'])
+                
+                # =================================================================
+                # FIX 1: O IdleState DEVE vir antes de iniciar o episódio!
+                # Isso impede que os agentes fiquem parados a criar episódios "fantasmas"
+                # =================================================================
+                if potatoes and dist_to_target <= 3.0:
+                    continue 
+
                 agent_name = char.get('name')
                 if not agent_name or agent_name == "None":
                     agent_name = 'Agente Antigo'
                 
-                # ===============================================================
-                # INÍCIO DO EPISÓDIO E DEFINIÇÃO DE NOME E COR
-                # ===============================================================
                 mode, is_new = ai_controller.analytics.start_episode(char['id'], char['x'], char['z'])
                 
                 if is_new:
-                    # Se for explorador, chama-se Explorador. Se for seguidor, chama-se Agente.
                     agent_name = f"Explorador {random.randint(10,99)}" if mode == 'explore' else f"Agente {random.randint(10,99)}"
                     updates_names.append({"id": char['id'], "name": agent_name})
                     char['name'] = agent_name
                 
-                target = (0.0, 0.0) if not potatoes else min(potatoes, key=lambda p: math.hypot(p[0]-char['x'], p[1]-char['z']))
-                
-                dist_to_target = math.hypot(target[0]-char['x'], target[1]-char['z'])
-                if potatoes and dist_to_target <= 2.1:
-                    continue # IdleState (Fica parado ao lado da batata)
-
                 new_x, new_z, action, old_state = ai_controller.process_tick(char['id'], (char['x'], char['z']), target)
                 last_action_taken = action
 
-                # ===============================================================
-                # NOVO: REGISTA O PASSO DADO (Para criar o histórico da rota)
-                # ===============================================================
                 ai_controller.analytics.record_step(char['id'], action, new_x, new_z)
 
                 is_out_of_bounds = new_x < -24 or new_x > 24 or new_z < -24 or new_z > 24
@@ -73,25 +70,24 @@ def simulate_tick():
                 is_collision = any(math.hypot(new_x - h['x'], new_z - h['z']) < 1.5 for h in houses)
                 
                 new_dist = math.hypot(target[0]-new_x, target[1]-new_z)
-                reached_target = bool(potatoes and new_dist <= 2.1)
                 
+                # =================================================================
+                # FIX 2: Blindagem contra Suicídio Premiado.
+                # Só pode ser considerado "Sucesso" se estiver dentro do mapa e vivo!
+                # =================================================================
+                reached_target = bool(potatoes and new_dist <= 3.0 and not is_out_of_bounds and not is_collision and not hit_cactus)
+                
+                # A RewardSystem agora vai punir severamente as quedas antes de sequer olhar para a batata
                 reward, done = RewardSystem.calculate(new_x, new_z, is_collision, is_out_of_bounds, hit_cactus, ai_controller.shared_knowledge, reached_target)
                 
-                if not reached_target and not done and new_dist < dist_to_target:
-                    reward += 2.0 
-                    
-                    # MOLDAGEM DE RECOMPENSA (BRESENHAM HEURISTIC):
-                    # Força a IA a desenhar a reta mais perfeita e direta possível na grelha
-                    dist_x_old = abs(target[0] - char['x'])
-                    dist_z_old = abs(target[1] - char['z'])
-                    
-                    # Desempate geométrico: A IA ganha um bónus extra se reduzir o eixo que está mais atrasado
-                    if dist_x_old > dist_z_old and char['x'] != new_x:
-                        reward += 0.5 
-                    elif dist_z_old > dist_x_old and char['z'] != new_z:
-                        reward += 0.5 
-                    elif dist_x_old == dist_z_old:
-                        reward += 0.2 # Recompensa por manter a simetria diagonal
+                # =================================================================
+                # FIX 3: O Gradiente aplica-se SEMPRE!
+                # Isso ensina a IA que o passo diagonal final (+508pts) é melhor que o passo reto final (+506pts)
+                # =================================================================
+                if not is_out_of_bounds and not is_collision and not hit_cactus:
+                    dist_saved = dist_to_target - new_dist
+                    if dist_saved > 0:
+                        reward += dist_saved * 3.0 
 
                 new_state = EnvironmentSensor.get_state((new_x, new_z), target, ai_controller.shared_knowledge)
                 ai_controller.brain.train(old_state, action, reward, new_state, done)

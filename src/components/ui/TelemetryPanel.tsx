@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import type { SimulationEvent, RouteAnalytics } from '../../types';
 
 interface TelemetryProps {
@@ -8,6 +8,19 @@ interface TelemetryProps {
 
 export default function TelemetryPanel({ events, analytics }: TelemetryProps) {
   const [activeTab, setActiveTab] = useState<'events' | 'routes' | 'ranking'>('events');
+  
+  // NOVO: Estados para os nossos filtros de ruído
+  const [hideCactusDeaths, setHideCactusDeaths] = useState(false);
+  const [hideOutOfBounds, setHideOutOfBounds] = useState(false);
+
+  // NOVO: Filtra os eventos em tempo real com base nos botões
+  const filteredEvents = useMemo(() => {
+    return events.filter(evt => {
+      if (hideCactusDeaths && evt.message.includes('colidiu com um cacto')) return false;
+      if (hideOutOfBounds && evt.message.includes('caiu da borda do mundo')) return false;
+      return true;
+    });
+  }, [events, hideCactusDeaths, hideOutOfBounds]);
 
   return (
     <div className="event-log-panel">
@@ -24,8 +37,29 @@ export default function TelemetryPanel({ events, analytics }: TelemetryProps) {
         {/* TAB: EVENTOS */}
         {activeTab === 'events' && (
           <>
-            {events.length === 0 && <p className="empty-state">Aguardando eventos...</p>}
-            {events.map((evt) => (
+            {/* NOVO: Barra de Ferramentas de Filtros */}
+            <div style={{ display: 'flex', gap: '5px', marginBottom: '10px', flexWrap: 'wrap' }}>
+              <button 
+                className={`btn-premium ${hideCactusDeaths ? 'btn-danger' : 'btn-dark'}`} 
+                style={{ padding: '4px 8px', fontSize: '10px', opacity: hideCactusDeaths ? 0.8 : 1 }}
+                onClick={() => setHideCactusDeaths(!hideCactusDeaths)}
+              >
+                {hideCactusDeaths ? '🚫 Ocultando Cactos' : '🌵 Ocultar Cactos'}
+              </button>
+              
+              <button 
+                className={`btn-premium ${hideOutOfBounds ? 'btn-danger' : 'btn-dark'}`} 
+                style={{ padding: '4px 8px', fontSize: '10px', opacity: hideOutOfBounds ? 0.8 : 1 }}
+                onClick={() => setHideOutOfBounds(!hideOutOfBounds)}
+              >
+                {hideOutOfBounds ? '🚫 Ocultando Quedas' : '🕳️ Ocultar Quedas'}
+              </button>
+            </div>
+
+            {filteredEvents.length === 0 && <p className="empty-state">Aguardando eventos...</p>}
+            
+            {/* AGORA USAMOS A LISTA FILTRADA! */}
+            {filteredEvents.map((evt) => (
               <div key={evt.id} className={`log-entry ${evt.level.toLowerCase()}`}>
                 <span className="log-time">{new Date().toLocaleTimeString()}</span>
                 <span className="log-message">{evt.message}</span>

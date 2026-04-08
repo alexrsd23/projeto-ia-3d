@@ -145,94 +145,117 @@ class RouteAnalyticsSystem:
         shortcut_found = False
         
         # =================================================================
-        # NOVA REGRA: COSTURA DINÂMICA E LOG DE AUDITORIA
+        # REGRAS DE OTIMIZAÇÃO HIERÁRQUICA (Com Timeout e LOGS)
         # =================================================================
-        if origin in self.best_routes and ep['original_mode'] == 'explore':
-            old_path = self.best_routes[origin]['path_coords']
-            old_raw = self.best_routes[origin]['raw_actions']
-            old_str = self.best_routes[origin]['actions']
+        if origin in self.best_routes and origin in self.optimization_state and ep['original_mode'] == 'explore':
+            opt = self.optimization_state[origin]
+            idx = opt['current_idx']
+            
+            # Conta tentativas para o Timeout
+            opt['window_attempts'] = opt.get('window_attempts', 0) + 1
+            
+            if idx < len(opt['milestones']) - 1:
+                pt_A = opt['milestones'][idx]
+                pt_B = opt['milestones'][idx+1]
+                
+                # NOVO: Descobre se esta é a última janela antes da batata!
+                is_final_window = (idx == len(opt['milestones']) - 2) 
+                
+                old_path = self.best_routes[origin]['path_coords']
 
-            if origin not in self.optimization_state:
-                self.optimization_state[origin] = {'urn': {}, 'attempts': 0}
+                self.logger.log("DEBUG", f"🔍 [Janela {idx+1}] Tentativa {opt['window_attempts']}/20: {pt_A} -> {pt_B}")
 
-            self.optimization_state[origin]['attempts'] += 1
-            total_explorers = self.optimization_state[origin]['attempts']
+                if pt_A in old_path and pt_B in old_path:
+                    passed_A = pt_A in ep['path_coords']
+                    passed_B = pt_B in ep['path_coords']
 
-            # Procura todas as interseções entre a viagem do explorador e a estrada oficial
-            intersections = []
-            for i, coord in enumerate(ep['path_coords']):
-                if coord in old_path:
-                    intersections.append((i, old_path.index(coord), coord))
-
-            # Se cruzou a estrada pelo menos 2 vezes, avaliamos o trecho entre esses cruzamentos
-            if len(intersections) >= 2:
-                best_shortcut = None
-                max_saved = 0
-
-                # Testa todas as combinações de pontos de entrada e saída da estrada
-                for i in range(len(intersections) - 1):
-                    for j in range(i + 1, len(intersections)):
-                        new_idx_start, old_idx_start, pt_start = intersections[i]
-                        new_idx_end, old_idx_end, pt_end = intersections[j]
-
-                        # Garante que ele andou para a frente
-                        if old_idx_end > old_idx_start and new_idx_end > new_idx_start:
-                            new_steps = new_idx_end - new_idx_start
-                            old_steps = old_idx_end - old_idx_start
-
-                            # Descobriu um atalho dinâmico!
-                            if new_steps < old_steps:
-                                saved = old_steps - new_steps
-                                if saved > max_saved:
-                                    max_saved = saved
-                                    best_shortcut = (new_idx_start, new_idx_end, old_idx_start, old_idx_end, pt_start, pt_end)
-
-                if best_shortcut:
-                    new_idx_start, new_idx_end, old_idx_start, old_idx_end, pt_start, pt_end = best_shortcut
-                    sub_path = ep['path_coords'][new_idx_start : new_idx_end+1]
-                    sub_raw = ep['raw_actions'][new_idx_start : new_idx_end]
-                    sub_str = ep['actions'][new_idx_start : new_idx_end]
-
-                    sub_hash = tuple(sub_path)
-
-                    if sub_hash not in self.optimization_state[origin]['urn']:
-                        self.optimization_state[origin]['urn'][sub_hash] = {
-                            'votes': 1, 'path': sub_path, 'raw': sub_raw, 'str': sub_str, 
-                            'old_start': old_idx_start, 'old_end': old_idx_end
-                        }
-                    else:
-                        self.optimization_state[origin]['urn'][sub_hash]['votes'] += 1
-
-                    votes = self.optimization_state[origin]['urn'][sub_hash]['votes']
-                    negados = total_explorers - votes 
-
-                    # A SUA SOLICITAÇÃO: Log detalhado do processo de votação
-                    path_str_parts = [f"({int(sub_path[0][0])},{int(sub_path[0][1])}) - início"]
-                    for step_idx in range(len(sub_str)):
-                        path_str_parts.append(f"({int(sub_path[step_idx+1][0])},{int(sub_path[step_idx+1][1])}) - {sub_str[step_idx].lower()}")
-                    formatted_path = " → ".join(path_str_parts)
-
-                    self.logger.log("INFO", f"🔎 Avaliando trecho: [{formatted_path}] | Confirmado por: {votes} explorador(es), negado por: {negados}.")
-
-                    # CONSENSO: Reduzido para 3 votos para acelerar a demonstração visual
-                    if votes >= 3:
-                        new_path = old_path[:old_idx_start] + sub_path + old_path[old_idx_end+1:]
-                        new_raw = old_raw[:old_idx_start] + sub_raw + old_raw[old_idx_end:]
-                        new_str = old_str[:old_idx_start] + sub_str + old_str[old_idx_end:]
-
-                        self.best_routes[origin]['path_coords'] = new_path
-                        self.best_routes[origin]['raw_actions'] = new_raw
-                        self.best_routes[origin]['actions'] = new_str
-                        self.best_routes[origin]['steps'] = len(new_raw)
-                        self.best_routes[origin]['score'] = len(new_raw)
-                        self.best_routes[origin]['plateau'] = 0
-                        self.best_routes[origin]['fails'] = 0
-
-                        self.logger.log("SUCCESS", f"✅ Consenso Atingido! Rota substituída com sucesso (-{max_saved} passos).")
-
-                        # Limpa a urna e reinicia as tentativas pois a estrada oficial mudou
-                        self.optimization_state[origin] = {'urn': {}, 'attempts': 0} 
-                        shortcut_found = True
+                    if passed_A:
+                        # ==============================================================
+                        # FIX DO ENDPOINT (O GANCHO): Se for a última janela e o explorador 
+                        # chegou na batata, ele NÃO precisa passar no ponto pt_B antigo. 
+                        # O ponto final da viagem dele serve como o novo pt_B!
+                        # ==============================================================
+                        if is_final_window and success:
+                            passed_B = True
+                            i_B = len(ep['path_coords']) - 1
+                            old_i_B = len(old_path) - 1
+                        elif passed_B:
+                            i_B = ep['path_coords'].index(pt_B)
+                            old_i_B = old_path.index(pt_B)
+                            
+                        if passed_B:
+                            i_A = ep['path_coords'].index(pt_A)
+                            old_i_A = old_path.index(pt_A)
+                            
+                            if i_A < i_B:
+                                sub_path = ep['path_coords'][i_A : i_B+1]
+                                sub_raw = ep['raw_actions'][i_A : i_B]
+                                sub_str = ep['actions'][i_A : i_B]
+                                
+                                new_local_steps = i_B - i_A
+                                old_local_steps = old_i_B - old_i_A
+                            
+                            # LOG 2: Distância local
+                            self.logger.log("DEBUG", f"⚖️ Distância Local: Antiga={old_local_steps} vs Nova={new_local_steps}")
+                            
+                            is_local_better = False
+                            
+                            if new_local_steps < old_local_steps:
+                                is_local_better = True
+                                self.logger.log("DEBUG", f"✅ Atalho Local! Economia: {old_local_steps - new_local_steps}")
+                            elif new_local_steps == old_local_steps:
+                                old_raw_segment = self.best_routes[origin]['raw_actions'][old_i_A : old_i_B]
+                                new_turns = sum(1 for k in range(1, len(sub_raw)) if sub_raw[k] != sub_raw[k-1])
+                                old_turns = sum(1 for k in range(1, len(old_raw_segment)) if old_raw_segment[k] != old_raw_segment[k-1])
+                                
+                                # LOG 3: Desempate Estético Local
+                                self.logger.log("DEBUG", f"📐 Empate Local. Curvas: Antiga={old_turns} vs Nova={new_turns}")
+                                
+                                if new_turns < old_turns:
+                                    is_local_better = True
+                                    self.logger.log("DEBUG", f"✅ Rota Local Mais Reta! Voto aceite.")
+                                    
+                            if is_local_better:
+                                sub_hash = tuple(sub_path)
+                                if sub_hash not in opt['urn']:
+                                    opt['urn'][sub_hash] = {'votes': 1, 'path': sub_path, 'raw': sub_raw, 'str': sub_str}
+                                else:
+                                    opt['urn'][sub_hash]['votes'] += 1
+                                    
+                                self.logger.log("DEBUG", f"🗳️ Voto na Urna! ({opt['urn'][sub_hash]['votes']}/5)")
+                                
+                                if opt['urn'][sub_hash]['votes'] >= 5:
+                                    new_path = old_path[:old_i_A] + sub_path + old_path[old_i_B+1:]
+                                    new_raw = self.best_routes[origin]['raw_actions'][:old_i_A] + sub_raw + self.best_routes[origin]['raw_actions'][old_i_B:]
+                                    new_str = self.best_routes[origin]['actions'][:old_i_A] + sub_str + self.best_routes[origin]['actions'][old_i_B:]
+                                    
+                                    steps_saved = old_local_steps - new_local_steps
+                                    self.best_routes[origin]['path_coords'] = new_path
+                                    self.best_routes[origin]['raw_actions'] = new_raw
+                                    self.best_routes[origin]['actions'] = new_str
+                                    self.best_routes[origin]['steps'] = len(new_raw)
+                                    self.best_routes[origin]['score'] = len(new_raw)
+                                    self.best_routes[origin]['plateau'] = 0
+                                    self.best_routes[origin]['fails'] = 0
+                                    
+                                    self.logger.log("SUCCESS", f"✅ Trecho {idx+1} Costurado: {pt_A} -> {pt_B} (-{steps_saved} passos).")
+                                    
+                                    opt['current_idx'] += 1
+                                    opt['window_attempts'] = 0 
+                                    opt['urn'] = {}
+                                    shortcut_found = True
+                                    
+                # ==============================================================
+                # TIMEOUT: O FIX DE OURO COM LOG
+                # ==============================================================
+                if opt.get('window_attempts', 0) >= 20 and not shortcut_found:
+                    self.logger.log("DEBUG", f"⏭️ Janela {idx+1} irredutível após 20 testes. Avançando o Ferro de Engomar!")
+                    opt['current_idx'] += 1
+                    opt['window_attempts'] = 0
+                    opt['urn'] = {}
+                    
+                if opt['current_idx'] >= len(opt['milestones']) - 1:
+                    self.logger.log("SUCCESS", f"🏁 Otimização Hierárquica concluída para a Origem {origin}!")
 
         if origin not in self.origin_stats:
             self.origin_stats[origin] = {'attempts': 0, 'successes': 0}
@@ -255,7 +278,32 @@ class RouteAnalyticsSystem:
             math_min_steps = math.ceil(max(abs(final_pos[0] - origin[0]) / 2, abs(final_pos[1] - origin[1]) / 2))
             is_perfect_route = (score <= math_min_steps + 1)
             
-            if origin not in self.best_routes or score < self.best_routes[origin]['score']:
+            # =================================================================
+            # AVALIAÇÃO GLOBAL (Com Sondas)
+            # =================================================================
+            is_better_route = False
+            
+            if origin not in self.best_routes:
+                is_better_route = True
+            else:
+                old_score = self.best_routes[origin]['score']
+                # LOG 4: Avaliação Global
+                self.logger.log("DEBUG", f"🌍 Global Eval: Explorador={score} vs Recorde={old_score}")
+                
+                if score < old_score:
+                    is_better_route = True
+                    self.logger.log("DEBUG", f"🏆 Recorde Global Batido! {old_score} -> {score}")
+                elif score == old_score:
+                    new_raw = ep['raw_actions']
+                    old_raw = self.best_routes[origin]['raw_actions']
+                    new_turns = sum(1 for i in range(1, len(new_raw)) if new_raw[i] != new_raw[i-1])
+                    old_turns = sum(1 for i in range(1, len(old_raw)) if old_raw[i] != old_raw[i-1])
+                    
+                    if new_turns < old_turns:
+                        is_better_route = True
+                        self.logger.log("DEBUG", f"✨ Otimização Estética Global Aceita! (Curvas: {old_turns} -> {new_turns})")
+
+            if is_better_route:
                 self.best_routes[origin] = {
                     'score': score,
                     'steps': ep['steps'],
@@ -267,11 +315,30 @@ class RouteAnalyticsSystem:
                     'plateau': 999 if is_perfect_route else 0
                 }
                 
-                # Reinicia o estado de otimização para a nova rota global
-                self.optimization_state[origin] = {'urn': {}, 'attempts': 0}
+                path = ep['path_coords']
+                milestones = []
+                step = 4 
+                window = 8 
+                for i in range(0, len(path), step):
+                    target_idx = min(i + window, len(path) - 1)
+                    if path[i] not in milestones:
+                        milestones.append(path[i])
+                    if target_idx == len(path) - 1:
+                        break 
+                if milestones[-1] != path[-1]:
+                    milestones.append(path[-1])
+                    
+                self.optimization_state[origin] = {
+                    'milestones': milestones,
+                    'current_idx': 0,
+                    'urn': {},
+                    'window_attempts': 0 
+                }
                 
                 if is_perfect_route:
-                    self.logger.log("SUCCESS", f"⭐ Rota Perfeita Matematicamente encontrada para a origem X:{origin[0]} Z:{origin[1]}!")
+                    self.logger.log("SUCCESS", f"⭐ Rota Global Perfeita descoberta para X:{origin[0]} Z:{origin[1]}!")
+                elif origin in self.best_routes:
+                    self.logger.log("SUCCESS", f"✅ Nova Rota Otimizada Global para X:{origin[0]} Z:{origin[1]}!")
             else:
                 if ep['original_mode'] == 'explore':
                     if not shortcut_found:
@@ -291,7 +358,7 @@ class RouteAnalyticsSystem:
                     tolerance = 10 if self.best_routes[origin].get('plateau', 0) >= 999 else 2
                     
                     if self.best_routes[origin]['fails'] >= tolerance:
-                        self.logger.log("WARNING", f"🔄 Rota de X:{origin[0]} Z:{origin[1]} INVALIDADA (Falhas excessivas).")
+                        self.logger.log("WARNING", f"🔄 Rota INVALIDADA (Falhas excessivas).")
                         del self.best_routes[origin]
                 
                 elif ep['original_mode'] == 'explore':
@@ -331,9 +398,9 @@ class EnvironmentSensor:
 class RewardSystem:
     @staticmethod
     def calculate(new_x, new_z, is_collision, is_out_of_bounds, hit_cactus, shared_knowledge, reached_target):
-        if reached_target: return 500.0, True 
-        if is_out_of_bounds: return -100.0, True
+        if is_out_of_bounds: return -100.0, True # Morte imediata tem prioridade absoluta!
         if hit_cactus: return -100.0, True
+        if reached_target: return 500.0, True 
         if shared_knowledge.is_dangerous(new_x, new_z): return -50.0, False 
         if is_collision: return -10.0, False
         return -1.0, False
@@ -348,11 +415,22 @@ class NeuralNetworkPlaceholder:
         
     def get_action(self, state):
         state_key = tuple(np.round(state, 1))
+        
+        # 1. Explorador puro age aleatoriamente
         if random.random() < self.epsilon:
-            return random.randint(0, 7) # Agora a IA tem 8 ações (0 a 7)
+            return random.randint(0, 7) 
+            
         if state_key not in self.q_table:
-            self.q_table[state_key] = [0.0] * 8 # O cérebro nasce com 8 neurônios de saída
-        return np.argmax(self.q_table[state_key])
+            self.q_table[state_key] = [0.0] * 8
+            
+        q_values = self.q_table[state_key]
+        max_q = np.max(q_values)
+        
+        # 2. O FIX DA ONDA: Encontra todas as ações que estão empatadas no primeiro lugar
+        best_actions = [action for action, q in enumerate(q_values) if q == max_q]
+        
+        # 3. Escolhe aleatoriamente entre os vencedores, eliminando o viés direcional!
+        return random.choice(best_actions)
         
     def train(self, state, action, reward, next_state, done):
         state_key = tuple(np.round(state, 1))
