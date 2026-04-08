@@ -19,6 +19,9 @@ export default function App() {
   const [lastNNAction, setLastNNAction] = useState<number>(0);
   const [selectedTileId, setSelectedTileId] = useState<string | null>(null);
 
+  const [qValues, setQValues] = useState<number[]>(Array(8).fill(0));
+  const [nnState, setNNState] = useState<number[]>([0,0,0]);
+
   // MODO DE TESTE DE ROTAS
   const [isRouteTestingMode, setIsRouteTestingMode] = useState(true);
   const [routeBounds, setRouteBounds] = useState({ xMin: -24, xMax: -24, zMin: 24, zMax: 24 });
@@ -121,6 +124,9 @@ export default function App() {
             if (tickData.analytics) setAnalytics(tickData.analytics);
             if (tickData.heatmap) setHeatmap(tickData.heatmap);
             if (tickData.lastAction !== undefined) setLastNNAction(tickData.lastAction);
+            // NOVO: Lê os valores da API do Python
+            if (tickData.qValues) setQValues(tickData.qValues);
+            if (tickData.currentState) setNNState(tickData.currentState);
             if (tickData.events && tickData.events.length > 0) {
               setEvents(prev => [...tickData.events, ...prev].slice(0, 2000));
             }
@@ -281,7 +287,7 @@ export default function App() {
       />
 
       <div style={{ position: 'relative', flexGrow: 1 }}>
-        <NeuralNetworkVisualizer lastAction={lastNNAction} />
+        <NeuralNetworkVisualizer lastAction={lastNNAction} qValues={qValues} state={nnState} />
         <Viewport3D
           entities={entities}
           selectedEntityId={selectedEntityId}

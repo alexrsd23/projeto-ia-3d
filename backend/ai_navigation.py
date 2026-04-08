@@ -1,6 +1,10 @@
 import math
 import random
 import numpy as np
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from collections import deque
 
 class SharedKnowledgeSystem:
     def __init__(self):
@@ -392,8 +396,15 @@ class EnvironmentSensor:
         dx = round((target_pos[0] - agent_pos[0]) / 2)
         dz = round((target_pos[1] - agent_pos[1]) / 2)
         
-        # A SUA SOLUÇÃO 1: O Estado agora "lembra" a inércia!
-        return np.array([dx, dz, last_action])
+        # ==============================================================
+        # FIX 1: Normalização PyTorch (A pílula de inteligência)
+        # Transforma coordenadas brutas (-24 a 24) em decimais (-1.0 a 1.0)
+        # ==============================================================
+        norm_dx = dx / 24.0
+        norm_dz = dz / 24.0
+        norm_act = last_action / 7.0 if last_action != -1 else 0.0
+        
+        return np.array([norm_dx, norm_dz, norm_act])
 
 class RewardSystem:
     @staticmethod
@@ -405,55 +416,97 @@ class RewardSystem:
         if is_collision: return -10.0, False
         return -1.0, False
 
-class NeuralNetworkPlaceholder:
+# =================================================================
+# A REDE NEURAL VERDADEIRA (PyTorch)
+# =================================================================
+class DQN(nn.Module):
+    def __init__(self, input_size, output_size):
+        super(DQN, self).__init__()
+        # Arquitetura Clássica: 3 Entradas -> 64 Neurónios -> 64 Neurónios -> 8 Saídas
+        self.fc1 = nn.Linear(input_size, 64)
+        self.fc2 = nn.Linear(64, 64)
+        self.fc3 = nn.Linear(64, output_size)
+
+    def forward(self, x):
+        x = torch.relu(self.fc1(x)) # Função de ativação ReLU
+        x = torch.relu(self.fc2(x))
+        return self.fc3(x) # Camada de saída (Q-Values reais)
+
+class RealNeuralNetworkBrain:
     def __init__(self):
-        self.q_table = {}
-        self.learning_rate = 0.1
-        self.discount_factor = 0.9
+        self.state_size = 3 # dx, dz, last_action
+        self.action_size = 8
+        
+        # O Cérebro Principal e o Cérebro Alvo (Estabilidade de treino)
+        self.device = torch.device("cpu")
+        self.policy_net = DQN(self.state_size, self.action_size).to(self.device)
+        self.target_net = DQN(self.state_size, self.action_size).to(self.device)
+        self.target_net.load_state_dict(self.policy_net.state_dict())
+        self.target_net.eval()
+        
+        self.optimizer = optim.Adam(self.policy_net.parameters(), lr=0.001)
+        self.memory = deque(maxlen=10000) # O Hipocampo (memória de curto prazo)
+        
+        self.batch_size = 64
+        self.gamma = 0.95
         self.epsilon = 1.0 
-        self.epsilon_decay = 0.99
+        self.epsilon_min = 0.1
+        self.epsilon_decay = 0.998
+        self.train_step = 0
         
     def get_action(self, state):
-        state_key = tuple(np.round(state, 1))
-        
-        # Recupera as variáveis do estado
-        dx_state = state[0]
-        dz_state = state[1]
-        last_action = int(state[2]) 
-        
-        # 1. Exploração Aleatória (O motor de descoberta)
+        # 1. Exploração
         if random.random() < self.epsilon:
             return random.randint(0, 7) 
             
-        if state_key not in self.q_table:
-            self.q_table[state_key] = [0.0] * 8
-            
-        q_values = self.q_table[state_key]
+        # 2. A Rede Neural a pensar (Forward Pass)
+        state_tensor = torch.FloatTensor(state).unsqueeze(0).to(self.device)
+        with torch.no_grad():
+            q_values_tensor = self.policy_net(state_tensor)
+        
+        q_values = q_values_tensor.cpu().numpy()[0]
         max_q = np.max(q_values)
         
-        # =================================================================
-        # O FIX PROFISSIONAL: GEOMETRIC SNAP BIAS
-        # Calcula o vetor matemático perfeito para o alvo
-        # =================================================================
-        ideal_action = -1
-        if dx_state == 0 and dz_state < 0: ideal_action = 0      # CIMA
-        elif dx_state == 0 and dz_state > 0: ideal_action = 1    # BAIXO
-        elif dx_state < 0 and dz_state == 0: ideal_action = 2    # ESQUERDA
-        elif dx_state > 0 and dz_state == 0: ideal_action = 3    # DIREITA
-        elif dx_state < 0 and dz_state < 0: ideal_action = 4     # DIAG_CE
-        elif dx_state > 0 and dz_state < 0: ideal_action = 5     # DIAG_CD
-        elif dx_state < 0 and dz_state > 0: ideal_action = 6     # DIAG_BE
-        elif dx_state > 0 and dz_state > 0: ideal_action = 7     # DIAG_BD
+        # NOVO: Guarda os valores 100% REAIS na memória para o React ler!
+        self.last_state = state.tolist() if isinstance(state, np.ndarray) else list(state)
+        self.last_q_values = [float(q) for q in q_values]
         
-        # SE a ação geométrica ideal for conhecida E for competitiva 
-        # (Toleramos uma margem de 2.0 pontos para ignorar o ruído/micro-desvios da Q-Table)
-        if ideal_action != -1 and q_values[ideal_action] >= max_q - 2.0:
+        # ==============================================================
+        # FIX: "DESNORMALIZAR" PARA O COMPASSO GEOMÉTRICO FUNCIONAR!
+        # Multiplicamos de volta por 24 e 7 para o código de lógica entender.
+        # ==============================================================
+        dx_state = round(state[0] * 24.0)
+        dz_state = round(state[1] * 24.0)
+        last_action = round(state[2] * 7.0)
+        
+        ideal_action = -1
+        if dx_state == 0 and dz_state < 0: ideal_action = 0
+        elif dx_state == 0 and dz_state > 0: ideal_action = 1
+        elif dx_state < 0 and dz_state == 0: ideal_action = 2
+        elif dx_state > 0 and dz_state == 0: ideal_action = 3
+        elif dx_state < 0 and dz_state < 0: ideal_action = 4
+        elif dx_state > 0 and dz_state < 0: ideal_action = 5
+        elif dx_state < 0 and dz_state > 0: ideal_action = 6
+        elif dx_state > 0 and dz_state > 0: ideal_action = 7
+        
+        # Como os Q-Values da Rede Neural variam muito (-100 a +500), 
+        # aumentamos a tolerância (de 2.0 para 50.0) para a intuição geométrica 
+        # conseguir guiá-los à força na fase de "criança" da rede neural!
+        if ideal_action != -1 and q_values[ideal_action] >= max_q - 50.0:
             return ideal_action
             
         # =================================================================
-        # 3. O Tie-Break Inteligente com Inércia (Fallback)
+        # CORTA-LOOPS SUAVE (A sua ideia de não punir os cactos!)
+        # Em vez de proibir a volta para trás, retiramos 10 pontos de Q-Value
         # =================================================================
-        best_actions = [action for action, q in enumerate(q_values) if q == max_q]
+        opposites = {0: 1, 1: 0, 2: 3, 3: 2, 4: 7, 7: 4, 5: 6, 6: 5}
+        if last_action in opposites:
+            opposite_action = opposites[last_action]
+            q_values[opposite_action] -= 10.0 
+            
+        # Recalcula o máximo após as penalizações
+        max_q = np.max(q_values)
+        best_actions = [action for action, q in enumerate(q_values) if abs(q - max_q) < 1e-4]
         
         if last_action in best_actions:
             return last_action
@@ -461,22 +514,48 @@ class NeuralNetworkPlaceholder:
         return random.choice(best_actions)
         
     def train(self, state, action, reward, next_state, done):
-        state_key = tuple(np.round(state, 1))
-        next_state_key = tuple(np.round(next_state, 1))
+        # Guarda a memória no Replay Buffer
+        self.memory.append((state, action, reward, next_state, done))
         
-        if state_key not in self.q_table: self.q_table[state_key] = [0.0] * 8
-        if next_state_key not in self.q_table: self.q_table[next_state_key] = [0.0] * 8
+        # A Rede só treina se tiver sonhado/vivido experiências suficientes
+        if len(self.memory) < self.batch_size:
+            return
             
-        best_next_action = np.max(self.q_table[next_state_key])
-        current_q = self.q_table[state_key][action]
-        new_q = current_q + self.learning_rate * (reward + self.discount_factor * best_next_action - current_q)
-        self.q_table[state_key][action] = new_q
+        # Retira um lote de memórias aleatórias para treinar os neurónios (Mini-batch)
+        batch = random.sample(self.memory, self.batch_size)
+        states, actions, rewards, next_states, dones = zip(*batch)
         
-        if done: self.epsilon = max(0.20, self.epsilon * self.epsilon_decay)
+        states = torch.FloatTensor(np.array(states)).to(self.device)
+        actions = torch.LongTensor(actions).unsqueeze(1).to(self.device)
+        rewards = torch.FloatTensor(rewards).unsqueeze(1).to(self.device)
+        next_states = torch.FloatTensor(np.array(next_states)).to(self.device)
+        dones = torch.FloatTensor(dones).unsqueeze(1).to(self.device)
+        
+        # Q-Values atuais
+        current_q_values = self.policy_net(states).gather(1, actions)
+        
+        # Q-Values do futuro (estimados pela Target Net)
+        with torch.no_grad():
+            max_next_q_values = self.target_net(next_states).max(1)[0].unsqueeze(1)
+            target_q_values = rewards + (self.gamma * max_next_q_values * (1 - dones))
+            
+        # Backpropagation (Calcula o Erro e ajusta os pesos dos neurónios)
+        loss = nn.MSELoss()(current_q_values, target_q_values)
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+        
+        self.train_step += 1
+        # Atualiza a Target Net ocasionalmente para manter a estabilidade mental
+        if self.train_step % 100 == 0:
+            self.target_net.load_state_dict(self.policy_net.state_dict())
+            
+        if done:
+            self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
 
 class AgentController:
     def __init__(self):
-        self.brain = NeuralNetworkPlaceholder()
+        self.brain = RealNeuralNetworkBrain() 
         self.shared_knowledge = SharedKnowledgeSystem()
         self.logger = EventLogSystem()
         self.analytics = RouteAnalyticsSystem(self.logger)
@@ -521,10 +600,13 @@ class AgentController:
                     safe_actions.append(i)
             
             if safe_actions:
+                # Usa a REDE NEURAL VERDADEIRA para prever os perigos!
+                state_tensor = torch.FloatTensor(state).unsqueeze(0).to(self.brain.device)
+                with torch.no_grad():
+                    q_values = self.brain.policy_net(state_tensor).cpu().numpy()[0]
+                
                 best_q = -float('inf')
                 action_idx = safe_actions[0]
-                state_key = tuple(np.round(state, 1))
-                q_values = self.brain.q_table.get(state_key, [0.0] * 8)
                 
                 for a in safe_actions:
                     if q_values[a] > best_q:

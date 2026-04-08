@@ -72,19 +72,24 @@ def simulate_tick():
                 new_dist = math.hypot(target[0]-new_x, target[1]-new_z)
                 
                 # =================================================================
-                # FIX 2: Blindagem contra Suicídio Premiado.
-                # Só pode ser considerado "Sucesso" se estiver dentro do mapa e vivo!
+                # FIX 2: O RELÓGIO DA MORTE (Morte por Exaustão)
+                # O limite matemático para cruzar o mapa é ~24 passos. Se ele der mais
+                # de 100 passos, ele está claramente preso num loop infinito!
                 # =================================================================
+                ep_steps = ai_controller.analytics.active_episodes.get(char['id'], {}).get('steps', 0)
+                is_exhausted = ep_steps >= 100
+                
                 reached_target = bool(potatoes and new_dist <= 0.1 and not is_out_of_bounds and not is_collision and not hit_cactus)
                 
-                # A RewardSystem agora vai punir severamente as quedas antes de sequer olhar para a batata
                 reward, done = RewardSystem.calculate(new_x, new_z, is_collision, is_out_of_bounds, hit_cactus, ai_controller.shared_knowledge, reached_target)
                 
-                # =================================================================
-                # FIX 3: O Gradiente aplica-se SEMPRE!
-                # Isso ensina a IA que o passo diagonal final (+508pts) é melhor que o passo reto final (+506pts)
-                # =================================================================
-                if not is_out_of_bounds and not is_collision and not hit_cactus:
+                # Aplica a sentença de morte por cansaço
+                if is_exhausted and not reached_target:
+                    done = True
+                    reward = -50.0 # Punição severa por preguiça/looping
+                
+                # O Gradiente (Só recebe bónus se for um passo produtivo)
+                if not is_out_of_bounds and not is_collision and not hit_cactus and not is_exhausted:
                     dist_saved = dist_to_target - new_dist
                     if dist_saved > 0:
                         reward += dist_saved * 3.0 
@@ -93,25 +98,25 @@ def simulate_tick():
                 ai_controller.brain.train(old_state, action, reward, new_state, done)
                 
                 if done:
-                    # ===============================================================
-                    # NOVO: FIM DO EPISÓDIO (Valida a rota, pontua e envia para análise)
-                    # ===============================================================
                     ai_controller.analytics.finalize_episode(char['id'], reached_target, agent_name)
                     
                     if reached_target:
-                        # Mostra no Log a quantidade de ticks (passos) que o agente demorou a chegar ao fim
                         steps_taken = ai_controller.analytics.best_routes.get((float(char['x']), float(char['z'])), {}).get('steps', '?')
-                        ai_controller.logger.log("INFO", f"🎯 {agent_name} encontrou o recurso em {steps_taken} ticks!")
-                        
+                        ai_controller.logger.log("SUCCESS", f"🎯 {agent_name} encontrou o recurso em {steps_taken} ticks!")
                         updates_positions.append({"id": char['id'], "x": float(new_x), "z": float(new_z)})
                         heatmap_data[(float(new_x), float(new_z))] = heatmap_data.get((float(new_x), float(new_z)), 0) + 1
                     else:
                         dead_agents.append(char['id'])
-                        ai_controller.shared_knowledge.mark_danger(new_x, new_z)
-                        if hit_cactus:
-                            ai_controller.logger.log("ERROR", f"☠️ {agent_name} colidiu com um cacto em X:{new_x} Z:{new_z}")
-                        elif is_out_of_bounds:
-                            ai_controller.logger.log("WARNING", f"⚠️ {agent_name} caiu da borda do mundo!")
+                        
+                        # LOGS DE MORTE SEPARADOS PARA SABERMOS O QUE ACONTECEU
+                        if is_exhausted:
+                            ai_controller.logger.log("WARNING", f"⏳ {agent_name} morreu de exaustão por andar em círculos!")
+                        else:
+                            ai_controller.shared_knowledge.mark_danger(new_x, new_z)
+                            if hit_cactus:
+                                ai_controller.logger.log("ERROR", f"☠️ {agent_name} colidiu com um cacto em X:{new_x} Z:{new_z}")
+                            elif is_out_of_bounds:
+                                ai_controller.logger.log("WARNING", f"⚠️ {agent_name} caiu da borda do mundo!")
                 
                 elif not is_collision:
                     updates_positions.append({"id": char['id'], "x": float(new_x), "z": float(new_z)})
@@ -158,13 +163,15 @@ def simulate_tick():
         safe_heatmap = [{"gridX": float(k[0]), "gridZ": float(k[1]), "visits": int(v)} for k, v in heatmap_data.items()]
 
         # ===============================================================
-        # NOVO: Injetamos o "analytics" na resposta JSON enviada ao React!
+        # NOVO: Injetamos os dados puros do PyTorch na resposta JSON!
         # ===============================================================
         return {
             "message": "Tick processado", 
             "heatmap": safe_heatmap,
             "events": ai_controller.logger.flush(),
             "lastAction": int(last_action_taken),
+            "qValues": getattr(ai_controller.brain, 'last_q_values', [0.0]*8),
+            "currentState": getattr(ai_controller.brain, 'last_state', [0, 0, 0]),
             "analytics": ai_controller.analytics.get_telemetry_data(ai_controller.shared_knowledge) 
         }
     except Exception as e:
