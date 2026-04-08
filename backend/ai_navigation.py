@@ -187,57 +187,58 @@ class RouteAnalyticsSystem:
                             i_A = ep['path_coords'].index(pt_A)
                             old_i_A = old_path.index(pt_A)
                             
+                            # TUDO A PARTIR DAQUI FOI INDENTADO PARA DENTRO DESTE IF
                             if i_A < i_B:
                                 sub_path = ep['path_coords'][i_A : i_B+1]
                                 sub_raw = ep['raw_actions'][i_A : i_B]
                                 sub_str = ep['actions'][i_A : i_B]
                                 
                                 new_local_steps = i_B - i_A
-                            old_local_steps = old_i_B - old_i_A
-                            
-                            # A SUA SOLUÇÃO 4: O Score Composto para a Otimização Local (Tempo Real)
-                            new_turns = sum(1 for k in range(1, len(sub_raw)) if sub_raw[k] != sub_raw[k-1])
-                            old_raw_segment = self.best_routes[origin]['raw_actions'][old_i_A : old_i_B]
-                            old_turns = sum(1 for k in range(1, len(old_raw_segment)) if old_raw_segment[k] != old_raw_segment[k-1])
-                            
-                            new_local_score = new_local_steps + (new_turns * 0.15)
-                            old_local_score = old_local_steps + (old_turns * 0.15)
-                            
-                            is_local_better = False
-                            
-                            if new_local_score < old_local_score:
-                                is_local_better = True
-                                self.logger.log("DEBUG", f"✅ Atalho Local! Score: {old_local_score:.2f} -> {new_local_score:.2f}")
-                                    
-                            if is_local_better:
-                                sub_hash = tuple(sub_path)
-                                if sub_hash not in opt['urn']:
-                                    opt['urn'][sub_hash] = {'votes': 1, 'path': sub_path, 'raw': sub_raw, 'str': sub_str}
-                                else:
-                                    opt['urn'][sub_hash]['votes'] += 1
-                                    
-                                self.logger.log("DEBUG", f"🗳️ Voto na Urna! ({opt['urn'][sub_hash]['votes']}/5)")
+                                old_local_steps = old_i_B - old_i_A
                                 
-                                if opt['urn'][sub_hash]['votes'] >= 5:
-                                    new_path = old_path[:old_i_A] + sub_path + old_path[old_i_B+1:]
-                                    new_raw = self.best_routes[origin]['raw_actions'][:old_i_A] + sub_raw + self.best_routes[origin]['raw_actions'][old_i_B:]
-                                    new_str = self.best_routes[origin]['actions'][:old_i_A] + sub_str + self.best_routes[origin]['actions'][old_i_B:]
+                                # A SUA SOLUÇÃO 4: O Score Composto para a Otimização Local
+                                new_turns = sum(1 for k in range(1, len(sub_raw)) if sub_raw[k] != sub_raw[k-1])
+                                old_raw_segment = self.best_routes[origin]['raw_actions'][old_i_A : old_i_B]
+                                old_turns = sum(1 for k in range(1, len(old_raw_segment)) if old_raw_segment[k] != old_raw_segment[k-1])
+                                
+                                new_local_score = new_local_steps + (new_turns * 0.15)
+                                old_local_score = old_local_steps + (old_turns * 0.15)
+                                
+                                is_local_better = False
+                                
+                                if new_local_score < old_local_score:
+                                    is_local_better = True
+                                    self.logger.log("DEBUG", f"✅ Atalho Local! Score: {old_local_score:.2f} -> {new_local_score:.2f}")
+                                        
+                                if is_local_better:
+                                    sub_hash = tuple(sub_path)
+                                    if sub_hash not in opt['urn']:
+                                        opt['urn'][sub_hash] = {'votes': 1, 'path': sub_path, 'raw': sub_raw, 'str': sub_str}
+                                    else:
+                                        opt['urn'][sub_hash]['votes'] += 1
+                                        
+                                    self.logger.log("DEBUG", f"🗳️ Voto na Urna! ({opt['urn'][sub_hash]['votes']}/5)")
                                     
-                                    steps_saved = old_local_steps - new_local_steps
-                                    self.best_routes[origin]['path_coords'] = new_path
-                                    self.best_routes[origin]['raw_actions'] = new_raw
-                                    self.best_routes[origin]['actions'] = new_str
-                                    self.best_routes[origin]['steps'] = len(new_raw)
-                                    self.best_routes[origin]['score'] = len(new_raw)
-                                    self.best_routes[origin]['plateau'] = 0
-                                    self.best_routes[origin]['fails'] = 0
-                                    
-                                    self.logger.log("SUCCESS", f"✅ Trecho {idx+1} Costurado: {pt_A} -> {pt_B} (-{steps_saved} passos).")
-                                    
-                                    opt['current_idx'] += 1
-                                    opt['window_attempts'] = 0 
-                                    opt['urn'] = {}
-                                    shortcut_found = True
+                                    if opt['urn'][sub_hash]['votes'] >= 5:
+                                        new_path = old_path[:old_i_A] + sub_path + old_path[old_i_B+1:]
+                                        new_raw = self.best_routes[origin]['raw_actions'][:old_i_A] + sub_raw + self.best_routes[origin]['raw_actions'][old_i_B:]
+                                        new_str = self.best_routes[origin]['actions'][:old_i_A] + sub_str + self.best_routes[origin]['actions'][old_i_B:]
+                                        
+                                        steps_saved = old_local_steps - new_local_steps
+                                        self.best_routes[origin]['path_coords'] = new_path
+                                        self.best_routes[origin]['raw_actions'] = new_raw
+                                        self.best_routes[origin]['actions'] = new_str
+                                        self.best_routes[origin]['steps'] = len(new_raw)
+                                        self.best_routes[origin]['score'] = len(new_raw)
+                                        self.best_routes[origin]['plateau'] = 0
+                                        self.best_routes[origin]['fails'] = 0
+                                        
+                                        self.logger.log("SUCCESS", f"✅ Trecho {idx+1} Costurado: {pt_A} -> {pt_B} (-{steps_saved} passos).")
+                                        
+                                        opt['current_idx'] += 1
+                                        opt['window_attempts'] = 0 
+                                        opt['urn'] = {}
+                                        shortcut_found = True
                                     
                 # ==============================================================
                 # TIMEOUT: O FIX DE OURO COM LOG
@@ -414,8 +415,13 @@ class NeuralNetworkPlaceholder:
         
     def get_action(self, state):
         state_key = tuple(np.round(state, 1))
-        last_action = int(state[2]) # Recupera a inércia do estado
         
+        # Recupera as variáveis do estado
+        dx_state = state[0]
+        dz_state = state[1]
+        last_action = int(state[2]) 
+        
+        # 1. Exploração Aleatória (O motor de descoberta)
         if random.random() < self.epsilon:
             return random.randint(0, 7) 
             
@@ -425,10 +431,30 @@ class NeuralNetworkPlaceholder:
         q_values = self.q_table[state_key]
         max_q = np.max(q_values)
         
+        # =================================================================
+        # O FIX PROFISSIONAL: GEOMETRIC SNAP BIAS
+        # Calcula o vetor matemático perfeito para o alvo
+        # =================================================================
+        ideal_action = -1
+        if dx_state == 0 and dz_state < 0: ideal_action = 0      # CIMA
+        elif dx_state == 0 and dz_state > 0: ideal_action = 1    # BAIXO
+        elif dx_state < 0 and dz_state == 0: ideal_action = 2    # ESQUERDA
+        elif dx_state > 0 and dz_state == 0: ideal_action = 3    # DIREITA
+        elif dx_state < 0 and dz_state < 0: ideal_action = 4     # DIAG_CE
+        elif dx_state > 0 and dz_state < 0: ideal_action = 5     # DIAG_CD
+        elif dx_state < 0 and dz_state > 0: ideal_action = 6     # DIAG_BE
+        elif dx_state > 0 and dz_state > 0: ideal_action = 7     # DIAG_BD
+        
+        # SE a ação geométrica ideal for conhecida E for competitiva 
+        # (Toleramos uma margem de 2.0 pontos para ignorar o ruído/micro-desvios da Q-Table)
+        if ideal_action != -1 and q_values[ideal_action] >= max_q - 2.0:
+            return ideal_action
+            
+        # =================================================================
+        # 3. O Tie-Break Inteligente com Inércia (Fallback)
+        # =================================================================
         best_actions = [action for action, q in enumerate(q_values) if q == max_q]
         
-        # A SUA SOLUÇÃO 3: O Tie-Break Inteligente! 
-        # Elimina a "escadinha" preferindo manter a direção atual se ela for uma das melhores.
         if last_action in best_actions:
             return last_action
             
