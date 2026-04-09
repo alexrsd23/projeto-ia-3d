@@ -9,6 +9,11 @@ class EntityModel(BaseModel):
     birthdate: Optional[str] = None
     health: Optional[int] = None
     hunger: Optional[int] = None
+    color: Optional[str] = None
+    sex: Optional[str] = None
+    profession: Optional[str] = None
+    trustLevel: Optional[float] = None
+    lieLevel: Optional[float] = None
 
 class EntityUpdateModel(BaseModel):
     name: str

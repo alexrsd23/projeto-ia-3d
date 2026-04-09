@@ -1,6 +1,6 @@
 export interface Entity {
   id: string;
-  type: 'house' | 'character' | 'cactus' | 'farmer';
+  type: 'house' | 'character' | 'cactus' | 'farmer' | 'woodcutter' | 'builder' | 'tree' | 'stump' | 'log' | 'stone' | 'fence';
   position: [number, number, number];
   name?: string;
   birthdate?: string;
@@ -9,6 +9,13 @@ export interface Entity {
   inventoryJSON?: string;
   memoryJSON?: string;
   state?: string;
+  
+  // === ATRIBUTOS GENÉTICOS E SOCIAIS (DNA) ===
+  color?: string;       // Hexadecimal da cor (ex: "#4169E1")
+  sex?: 'M' | 'F';      // Sexo biológico
+  profession?: string;  // Título da profissão
+  trustLevel?: number;  // Nível de confiança (0-100)
+  lieLevel?: number;    // Nível de mentira (0-100)
 }
 
 export interface CropData {
