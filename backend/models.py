@@ -23,3 +23,8 @@ class TileModel(BaseModel):
     gridZ: int
     type: str
     crops: List[Dict[str, Any]] = []
+    
+class FarmerModel(EntityModel):
+    inventoryJSON: Optional[str] = "{}"
+    memoryJSON: Optional[str] = "{}"
+    state: Optional[str] = "IDLE"

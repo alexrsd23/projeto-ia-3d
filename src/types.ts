@@ -1,11 +1,14 @@
 export interface Entity {
   id: string;
-  type: 'house' | 'character' | 'cactus';
+  type: 'house' | 'character' | 'cactus' | 'farmer';
   position: [number, number, number];
   name?: string;
   birthdate?: string;
   health?: number; 
   hunger?: number;
+  inventoryJSON?: string;
+  memoryJSON?: string;
+  state?: string;
 }
 
 export interface CropData {
@@ -25,9 +28,9 @@ export interface TileData {
 
 export interface SimulationEvent {
   id: string;
-  level: 'INFO' | 'WARNING' | 'ERROR';
+  level: 'INFO' | 'WARNING' | 'ERROR' | 'SUCCESS'; // <-- ADICIONE O SUCCESS AQUI
   message: string;
-  timestamp: string;
+  timestamp?: string;
 }
 
 export interface RouteAnalytics {

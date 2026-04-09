@@ -13,6 +13,7 @@ import CactusObstacle from '../3d/environment/CactusObstacle';
 import SpawnAreaVisualizer from '../3d/environment/SpawnAreaVisualizer'; // O seu quadradinho de teste!
 import RouteVisualizerSystem from '../3d/environment/RouteVisualizerSystem'; // A nova inteligência visual!
 import type { Entity, TileData } from '../../types';
+import Farmer from '../3d/Farmer';
 
 interface RouteBounds {
   xMin: number; xMax: number; zMin: number; zMax: number;
@@ -82,6 +83,18 @@ export default function Viewport3D({
             return (
               <Character
                 key={entity.id} id={entity.id} position={entity.position} name={entity.name}
+                isSelected={selectedEntityId === entity.id}
+                onClick={onSelectEntity} onMove={onMoveEntity} setIsDragging={setIsDragging}
+                showNames={showNames}
+              />
+            );
+          }
+          // === NOVO: RENDERIZA O FAZENDEIRO ===
+          if (entity.type === 'farmer') {
+            return (
+              <Farmer
+                key={entity.id} id={entity.id} position={entity.position} name={entity.name}
+                hunger={entity.hunger} // Passamos a fome para ele mudar de cor!
                 isSelected={selectedEntityId === entity.id}
                 onClick={onSelectEntity} onMove={onMoveEntity} setIsDragging={setIsDragging}
                 showNames={showNames}

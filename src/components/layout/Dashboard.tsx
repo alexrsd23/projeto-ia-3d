@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
 import { type Entity } from '../../types';
+import FarmerInfoCard from '../ui/FarmerInfoCard';
 
 interface RouteBounds {
   xMin: number; xMax: number; zMin: number; zMax: number;
 }
 
 interface DashboardProps {
-  onAddEntity: (type: 'house' | 'character' | 'cactus', amount?: number) => void;
+  onAddEntity: (type: 'house' | 'character' | 'cactus' | 'farmer', amount?: number) => void; 
   isRunning: boolean;
   onToggleSimulation: () => void;
   selectedEntity: Entity | undefined;
@@ -173,7 +174,13 @@ export default function Dashboard({
               <label className="light-label" style={{ margin: 0 }}>Quantidade:</label>
               <input type="number" min="1" max="200" className="light-input" style={{ width: '60px', padding: '4px', margin: 0, textAlign: 'center' }} value={spawnAmount} onChange={(e) => setSpawnAmount(Math.max(1, Number(e.target.value)))} />
             </div>
-            <button className="btn-dropdown-item-light" onClick={() => onAddEntity('character', spawnAmount)}>👤⁺ Adicionar Pessoa(s)</button>
+            {/* LÓGICA INTELIGENTE DO BOTÃO BASEADA NO MODO */}
+            {currentMode === 'ROUTES' ? (
+              <button className="btn-dropdown-item-light" onClick={() => onAddEntity('character', spawnAmount)}>👤⁺ Adicionar Pessoa(s)</button>
+            ) : (
+              <button className="btn-dropdown-item-light" onClick={() => onAddEntity('farmer', spawnAmount)}>👨‍🌾⁺ Adicionar Fazendeiro(s)</button>
+            )}
+            
             <button className="btn-dropdown-item-light" onClick={() => onAddEntity('house', spawnAmount)}>🏠⁺ Adicionar Casa(s)</button>
             <button className="btn-dropdown-item-light" onClick={() => onAddEntity('cactus', spawnAmount)}>🌵⁺ Adicionar Cacto(s)</button>
           </div>
@@ -184,7 +191,14 @@ export default function Dashboard({
           <div className="card-panel">
             <h3 className="panel-title-light">Informação da Entidade</h3>
             {selectedEntity ? (
-              selectedEntity.type === 'character' ? (
+              selectedEntity.type === 'farmer' ? (
+                // === AQUI ENTRA A NOSSA OBRA DE ARTE MODULAR ===
+                <FarmerInfoCard 
+                  farmer={selectedEntity} 
+                  onSaveIdentity={onSaveIdentity} 
+                />
+              ) : selectedEntity.type === 'character' ? (
+                // === MANTÉM O LAYOUT ANTIGO PARA O MODO ROTAS ===
                 <div style={{ marginTop: '15px' }}>
                   <div style={{ background: '#f8fafc', padding: '10px', borderRadius: '8px', marginBottom: '15px', border: '1px solid #e2e8f0', fontSize: '13px' }}>
                     <span style={{ color: '#3b82f6', fontWeight: 600, fontFamily: 'monospace' }}>ID: {selectedEntity.id.split('-')[0]}</span>
