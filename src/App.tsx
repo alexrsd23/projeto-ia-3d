@@ -31,6 +31,7 @@ export default function App() {
   const isProcessingTick = useRef(false);
 
   const [analytics, setAnalytics] = useState<RouteAnalytics | null>(null);
+  const [currentMode, setCurrentMode] = useState<string>('ROUTES');
 
   const [sunPos, setSunPos] = useState<[number, number, number]>(() => {
     const saved = localStorage.getItem('sunPos');
@@ -91,6 +92,11 @@ export default function App() {
   useEffect(() => {
     const fetchWorld = async () => {
       try {
+        const resBrain = await fetch('http://127.0.0.1:8000/api/brain/mode');
+        if (resBrain.ok) {
+          const brainData = await resBrain.json();
+          setCurrentMode(brainData.current_mode);
+        }
         const resEntities = await fetch('http://127.0.0.1:8000/api/entities');
         if (resEntities.ok) setEntities(await resEntities.json());
 
@@ -262,6 +268,28 @@ export default function App() {
     }
   };
 
+  // ========================================================
+  // NOVO: TROCA DE MÓDULO NEURAL (STRATEGY PATTERN)
+  // ========================================================
+  const handleSwitchMode = async (mode: string) => {
+    try {
+      const response = await fetch('http://127.0.0.1:8000/api/brain/mode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode })
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setCurrentMode(data.current_mode);
+        // Limpa os dados visuais antigos na tela quando troca a fita
+        setAnalytics(null);
+        setHeatmap([]);
+      }
+    } catch (error) {
+      console.error("Erro ao trocar o modo do cérebro:", error);
+    }
+  };
+
   return (
     <div className="app-container">
       <Dashboard
@@ -283,7 +311,9 @@ export default function App() {
         onKillAllAgents={handleKillAllAgents}
         onClearAIMemory={handleClearAIMemory}
         showNames={showNames} // LIGA NO DASHBOARD
-        onToggleShowNames={() => setShowNames(!showNames)} // FUNÇÃO QUE VIRA A CHAVE
+        onToggleShowNames={() => setShowNames(!showNames)}
+        currentMode={currentMode}
+        onSwitchMode={handleSwitchMode}
       />
 
       <div style={{ position: 'relative', flexGrow: 1 }}>

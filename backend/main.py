@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 # Importando nossos roteadores modulares
-from routers import interactions, farming, simulation
+from routers import interactions, farming, simulation_routes, brain_control
 
 app = FastAPI(title="Mundo IA - Backend Modularizado")
 
@@ -14,10 +14,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Conectando os módulos ao orquestrador central
 app.include_router(interactions.router)
 app.include_router(farming.router)
-app.include_router(simulation.router)
+app.include_router(simulation_routes.router)
+app.include_router(brain_control.router)
 
 @app.get("/")
 def home():

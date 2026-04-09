@@ -25,6 +25,8 @@ interface DashboardProps {
   onClearAIMemory: () => void;
   showNames: boolean;
   onToggleShowNames: () => void;
+  currentMode: string;
+  onSwitchMode: (mode: string) => void;
 }
 
 export default function Dashboard({
@@ -32,7 +34,8 @@ export default function Dashboard({
   onSaveIdentity, onToggleDayNight, isDay, selectedTile,
   onPlow, onPlant, onDeselectTile,
   isRouteTestingMode, onToggleRouteTesting, routeBounds, setRouteBounds,
-  onKillAllAgents, showNames, onToggleShowNames, onClearAIMemory
+  onKillAllAgents, showNames, onToggleShowNames, onClearAIMemory, 
+  currentMode, onSwitchMode
 }: DashboardProps) {
   
   const [name, setName] = useState('');
@@ -59,6 +62,31 @@ export default function Dashboard({
         
         {/* === GRID DE BOTÕES DE AÇÃO === */}
         <div className="action-grid">
+
+          {/* === NOVO: CONTROLE NEURAL (O CÉREBRO) === */}
+        <div className="card-panel">
+          <div className="panel-header-flex" style={{ paddingBottom: '8px', marginBottom: '8px' }}>
+            <h3 className="panel-title-light">🧠 Módulo Neural</h3>
+          </div>
+          <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '12px' }}>
+            Fluxo atual: <strong>{currentMode === 'ROUTES' ? 'Modo Rotas (Pytorch)' : 'Modo Sobrevivência (Instinto)'}</strong>
+          </p>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button 
+              className={`btn-light-action ${currentMode === 'ROUTES' ? 'primary' : ''}`}
+              onClick={() => onSwitchMode('ROUTES')}
+            >
+              📍 Encontrar Rotas
+            </button>
+            <button 
+              className={`btn-light-action ${currentMode === 'SURVIVAL' ? 'primary' : ''}`}
+              style={currentMode === 'SURVIVAL' ? { background: '#10b981', borderColor: '#059669' } : undefined}
+              onClick={() => onSwitchMode('SURVIVAL')}
+            >
+              🛡️ Sobrevivência
+            </button>
+          </div>
+        </div>
           
           <button className="card-btn full" onClick={onToggleSimulation}>
             <span className="icon-large">{isRunning ? '⏸' : '▷'}</span>

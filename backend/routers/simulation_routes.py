@@ -5,6 +5,8 @@ import math
 import traceback 
 from database import driver
 from ai_navigation import AgentController, RewardSystem, EnvironmentSensor
+from brain_manager import manager
+from survival.survival_engine import process_survival_tick
 
 router = APIRouter(prefix="/api", tags=["Simulation"])
 
@@ -15,6 +17,16 @@ heatmap_data = {}
 def simulate_tick():
     try:
         with driver.session() as session:
+            
+            # ====== O PADRÃO STRATEGY (DESVIO DE FLUXO) ======
+            if manager.current_mode == "SURVIVAL":
+                # Executa o motor 100% isolado da pasta survival/
+                return process_survival_tick(manager.survival_brain, session)
+            
+            # ====== MODO ROTAS (O código que você já tinha) ======
+            elif manager.current_mode == "ROUTES":
+                ai_controller = manager.routes_brain
+                
             # 1. Busca as Entidades
             query_entities = "MATCH (e:Entity) RETURN e.id AS id, e.type AS type, e.posX AS x, e.posZ AS z, e.name AS name"
             results = session.run(query_entities).data()
@@ -166,13 +178,13 @@ def simulate_tick():
         # NOVO: Injetamos os dados puros do PyTorch na resposta JSON!
         # ===============================================================
         return {
-            "message": "Tick processado", 
+            "message": "Tick de rotas processado", 
             "heatmap": safe_heatmap,
             "events": ai_controller.logger.flush(),
             "lastAction": int(last_action_taken),
             "qValues": getattr(ai_controller.brain, 'last_q_values', [0.0]*8),
             "currentState": getattr(ai_controller.brain, 'last_state', [0, 0, 0]),
-            "analytics": ai_controller.analytics.get_telemetry_data(ai_controller.shared_knowledge) 
+            "analytics": ai_controller.analytics.get_telemetry_data(ai_controller.shared_knowledge)
         }
     except Exception as e:
         print("\n🚨 ERRO CRÍTICO NO TICK 🚨")
