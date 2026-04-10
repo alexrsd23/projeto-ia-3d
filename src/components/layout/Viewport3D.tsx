@@ -10,10 +10,21 @@ import DarknessOverlay from '../3d/environment/DarknessOverlay';
 import Ground from '../3d/environment/ground/Ground';
 import HeatmapSystem from '../3d/environment/ground/HeatmapSystem';
 import CactusObstacle from '../3d/environment/CactusObstacle';
-import SpawnAreaVisualizer from '../3d/environment/SpawnAreaVisualizer'; // O seu quadradinho de teste!
-import RouteVisualizerSystem from '../3d/environment/RouteVisualizerSystem'; // A nova inteligência visual!
+import SpawnAreaVisualizer from '../3d/environment/SpawnAreaVisualizer';
+import RouteVisualizerSystem from '../3d/environment/RouteVisualizerSystem';
 import type { Entity, TileData } from '../../types';
 import Farmer from '../3d/Farmer';
+import Woodcutter from '../3d/Woodcutter';
+import Builder from '../3d/Builder';
+import Tree from '../3d/environment/Tree';
+import Stump from '../3d/environment/Stump';
+import Log from '../3d/environment/Log';
+import Stone from '../3d/environment/Stone';
+import Fence from '../3d/environment/Fence';
+import LootBag from '../3d/environment/LootBag'; import Wolf from '../3d/environment/Wolf';
+import DamagedFence from '../3d/environment/DamagedFence';
+import Gate from '../3d/environment/Gate';
+import { Html } from '@react-three/drei';
 
 interface RouteBounds {
   xMin: number; xMax: number; zMin: number; zMax: number;
@@ -25,6 +36,7 @@ interface Viewport3DProps {
   onSelectEntity: (id: string) => void;
   onDeselect: () => void;
   onMoveEntity: (id: string, pos: [number, number, number]) => void;
+  onRotateEntity: (id: string, rotation: number) => void;
   sunPos: [number, number, number];
   moonPos: [number, number, number];
   onMoveSun: (pos: [number, number, number]) => void;
@@ -33,7 +45,7 @@ interface Viewport3DProps {
   tiles: TileData[];
   selectedTileId: string | null;
   onSelectTile: (id: string) => void;
-  heatmap: {gridX: number, gridZ: number, visits: number}[]; 
+  heatmap: { gridX: number, gridZ: number, visits: number }[];
   isRouteTestingMode: boolean;
   routeBounds: RouteBounds;
   analytics: any;
@@ -41,7 +53,7 @@ interface Viewport3DProps {
 }
 
 export default function Viewport3D({
-  entities, selectedEntityId, onSelectEntity, onDeselect, onMoveEntity,
+  entities, selectedEntityId, onSelectEntity, onDeselect, onMoveEntity, onRotateEntity,
   sunPos, moonPos, onMoveSun, onMoveMoon, isDay, tiles, selectedTileId, onSelectTile, heatmap,
   isRouteTestingMode, routeBounds, analytics, showNames
 }: Viewport3DProps) {
@@ -65,14 +77,14 @@ export default function Viewport3D({
         )}
 
         <Ground tiles={tiles} selectedTileId={selectedTileId} onSelectTile={onSelectTile} />
-        
+
         {/* O Mapa de Calor Clássico */}
         <HeatmapSystem data={heatmap} maxVisits={maxVisits} />
 
         {/* A NOVA Camada da Mente Colmeia (Azul e Vermelho) */}
-        <RouteVisualizerSystem 
-          consolidatedPaths={analytics?.consolidatedPaths || []} 
-          lethalZones={analytics?.lethalZones || []} 
+        <RouteVisualizerSystem
+          consolidatedPaths={analytics?.consolidatedPaths || []}
+          lethalZones={analytics?.lethalZones || []}
         />
 
         {/* RESTAURADO: O Quadradinho do Modo de Teste de Rotas */}
@@ -89,14 +101,34 @@ export default function Viewport3D({
               />
             );
           }
-          // === NOVO: RENDERIZA O FAZENDEIRO ===
-          if (entity.type === 'farmer') {
+          // === RENDERIZAÇÃO DOS AGENTES EVOLUTIVOS (Com DNA) ===
+          if (entity.type === 'farmer' || entity.type === 'woodcutter' || entity.type === 'builder') {
+
+            // Escolhe qual o boneco correto a montar
+            const CharacterComponent =
+              entity.type === 'farmer' ? Farmer :
+                entity.type === 'woodcutter' ? Woodcutter : Builder;
+
             return (
-              <Farmer
-                key={entity.id} id={entity.id} position={entity.position} name={entity.name}
-                hunger={entity.hunger} // Passamos a fome para ele mudar de cor!
+              <CharacterComponent
+                key={entity.id}
+                id={entity.id}
+                position={entity.position}
+                name={entity.name}
+                hunger={entity.hunger}
+                health={entity.health}
+
+                // === AQUI ESTÁ O DNA QUE ESTAVA FALTANDO! ===
+                color={entity.color}
+                sex={entity.sex}
+                trustLevel={entity.trustLevel}
+                lieLevel={entity.lieLevel}
+                // ============================================
+
                 isSelected={selectedEntityId === entity.id}
-                onClick={onSelectEntity} onMove={onMoveEntity} setIsDragging={setIsDragging}
+                onClick={onSelectEntity}
+                onMove={onMoveEntity}
+                setIsDragging={setIsDragging}
                 showNames={showNames}
               />
             );
@@ -118,6 +150,33 @@ export default function Viewport3D({
                 onClick={onSelectEntity} onMove={onMoveEntity} setIsDragging={setIsDragging}
               />
             );
+          }
+          if (entity.type === 'tree') {
+            return <Tree key={entity.id} id={entity.id} position={entity.position} isSelected={selectedEntityId === entity.id} onClick={onSelectEntity} onMove={onMoveEntity} setIsDragging={setIsDragging} />;
+          }
+          if (entity.type === 'stump') {
+            return <Stump key={entity.id} id={entity.id} position={entity.position} isSelected={selectedEntityId === entity.id} onClick={onSelectEntity} onMove={onMoveEntity} setIsDragging={setIsDragging} />;
+          }
+          if (entity.type === 'log') {
+            return <Log key={entity.id} id={entity.id} position={entity.position} isSelected={selectedEntityId === entity.id} onClick={onSelectEntity} onMove={onMoveEntity} setIsDragging={setIsDragging} />;
+          }
+          if (entity.type === 'stone') {
+            return <Stone key={entity.id} id={entity.id} position={entity.position} isSelected={selectedEntityId === entity.id} onClick={onSelectEntity} onMove={onMoveEntity} setIsDragging={setIsDragging} />;
+          }
+          if (entity.type === 'loot') {
+            return <LootBag key={entity.id} id={entity.id} position={entity.position} isSelected={selectedEntityId === entity.id} onClick={onSelectEntity} />;
+          }
+          if (entity.type === 'wolf') {
+            return <Wolf key={entity.id} id={entity.id} position={entity.position} isSelected={selectedEntityId === entity.id} onClick={onSelectEntity} onMove={onMoveEntity} setIsDragging={setIsDragging} />;
+          }
+          if (entity.type === 'damaged_fence') {
+            return <DamagedFence key={entity.id} id={entity.id} position={entity.position} isSelected={selectedEntityId === entity.id} onClick={onSelectEntity} onMove={onMoveEntity} setIsDragging={setIsDragging} />;
+          }
+          if (entity.type === 'fence') {
+            return <Fence key={entity.id} id={entity.id} position={entity.position} rotation={entity.rotation || 0} isSelected={selectedEntityId === entity.id} onClick={onSelectEntity} onMove={onMoveEntity} onRotate={onRotateEntity} setIsDragging={setIsDragging} allEntities={entities} />;
+          }
+          if (entity.type === 'gate') {
+            return <Gate key={entity.id} id={entity.id} position={entity.position} rotation={entity.rotation || 0} isSelected={selectedEntityId === entity.id} onClick={onSelectEntity} onMove={onMoveEntity} onRotate={onRotateEntity} setIsDragging={setIsDragging} allEntities={entities} />;
           }
           return null;
         })}

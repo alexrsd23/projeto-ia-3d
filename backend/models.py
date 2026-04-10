@@ -5,6 +5,7 @@ class EntityModel(BaseModel):
     id: str
     type: str
     position: list[float]
+    rotation: Optional[float] = 0.0
     name: Optional[str] = None
     birthdate: Optional[str] = None
     health: Optional[int] = None
@@ -21,6 +22,9 @@ class EntityUpdateModel(BaseModel):
 
 class PositionUpdateModel(BaseModel):
     position: list[float]
+    
+class RotationUpdateModel(BaseModel):
+    rotation: float
 
 class TileModel(BaseModel):
     id: str

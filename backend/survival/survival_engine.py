@@ -3,8 +3,11 @@ import random
 import uuid
 from survival.biology import BiologySystem
 from datetime import datetime
+from survival.economy_system import EconomySystem
+from survival.forestry_system import ForestrySystem
 
 def process_survival_tick(survival_brain, session):
+    economy = EconomySystem()
     biology = BiologySystem()
     current_tick = getattr(survival_brain, 'tick_counter', 0)
     survival_brain.tick_counter = current_tick + 1
@@ -13,27 +16,84 @@ def process_survival_tick(survival_brain, session):
     updates_tiles = []
     dead_agents = []
     events = []
+    new_entities_to_create = []
     
-    # 1. Busca Global (Agora puxa a memória e o estado)
-    query_agents = "MATCH (e:Entity {type: 'farmer'}) RETURN e.id AS id, e.posX AS x, e.posZ AS z, e.health AS hp, e.hunger AS hunger, e.name AS name, e.inventoryJSON AS inventoryJSON, e.memoryJSON AS memoryJSON, e.state AS state"
-    query_world = "MATCH (e:Entity) WHERE e.type <> 'farmer' RETURN e.id AS id, e.type AS type, e.posX AS x, e.posZ AS z"
-    query_tiles = "MATCH (t:Tile) RETURN t.id AS id, t.gridX AS x, t.gridZ AS z, t.type AS type, t.cropsJSON AS cropsJSON"
-    
-    agents = session.run(query_agents).data()
-    world_entities = session.run(query_world).data()
+    # Tipos de agentes inteligentes/sensitivos do sistema
+    AGENT_TYPES = ['farmer', 'woodcutter', 'builder', 'wolf']
+
+    # 1. Busca global de agentes sensíveis (Usando Parâmetro $agent_types)
+    query_agents = """
+    MATCH (e:Entity)
+    WHERE e.type IN $agent_types
+    RETURN 
+        e.id AS id,
+        e.type AS type,
+        e.posX AS x,
+        e.posZ AS z,
+        e.health AS hp,
+        e.hunger AS hunger,
+        e.name AS name,
+        e.inventoryJSON AS inventoryJSON,
+        e.memoryJSON AS memoryJSON,
+        e.state AS state
+    """
+
+    # 2. Busca de tudo que NÃO é agente sensível
+    query_world = """
+    MATCH (e:Entity)
+    WHERE NOT e.type IN $agent_types
+    RETURN 
+        e.id AS id,
+        e.type AS type,
+        e.posX AS x,
+        e.posZ AS z
+    """
+
+    # === ADICIONE ESTA QUERY QUE ESTAVA FALTANDO ===
+    query_tiles = """
+    MATCH (t:Tile) 
+    RETURN 
+        t.id AS id, 
+        t.gridX AS x, 
+        t.gridZ AS z, 
+        t.type AS type, 
+        t.cropsJSON AS cropsJSON
+    """
+
+    # Execução das Queries no Banco de Dados
+    agents = session.run(query_agents, agent_types=AGENT_TYPES).data()
+    world_entities = session.run(query_world, agent_types=AGENT_TYPES).data()
     world_tiles = session.run(query_tiles).data()
     
     tiles_map = {t['id']: t for t in world_tiles}
+    
+    # =====================================================================
+    # NOVO: Biologia do Mundo e Depreciação (Entropia Estrutural)
+    # =====================================================================
+    for entity in world_entities:
+        if entity['type'] == 'fence':
+            # 0.5% de chance da cerca quebrar a cada tick
+            if random.random() < 0.005:
+                updates_agents.append({
+                    "id": entity['id'], "type": "damaged_fence", 
+                    "x": entity['x'], "z": entity['z'],
+                    # === ADICIONE ISTO AQUI ===
+                    "hp": 0, "hunger": 0, "inv": "{}", "mem": "{}", "state": "IDLE"
+                })
 
     for agent in agents:
         inv = survival_brain.inventory_sys.parse(agent.get('inventoryJSON', "{}"))
         
         # 2. O Cérebro Pensa e Atualiza a RAM (AGORA COM 5 VARIÁVEIS)
-        action, new_x, new_z, target_id, brain_log = survival_brain.decide_next_move(agent, world_entities, world_tiles, current_tick)
+        action, new_x, new_z, target_id, brain_log = survival_brain.decide_next_move(agent, world_entities, world_tiles, current_tick, agents)
         
         # Formatação Cronológica do Log do Cérebro
         current_time = datetime.now().strftime("%H:%M:%S")
-        agent_name = agent.get('name', f"Agente {agent['id'][:4]}")
+        
+        # Garante nome impactante para o lobo caso ele não tenha
+        agent_name = agent.get('name')
+        if not agent_name:
+            agent_name = f"Lobo {agent['id'][:4]}" if agent['type'] == 'wolf' else f"Agente {agent['id'][:4]}"
         
         if brain_log:
             # INFO padrão de pensamento e navegação
@@ -56,10 +116,21 @@ def process_survival_tick(survival_brain, session):
         new_hunger = bio_result['hunger']
         new_hp = bio_result['hp']
         
+        # === A NOVA LÓGICA DA MORTE (Metamorfose para Loot) ===
         if bio_result['is_dead']:
-            dead_agents.append(agent['id'])
-            events.append({"id": f"evt-{random.randint(1000,9999)}", "level": "ERROR", "message": f"☠️ {agent['name']} morreu de fome!", "timestamp": "now"})
-            continue
+            events.append({"id": f"evt-{random.randint(1000,9999)}", "level": "ERROR", "message": f"☠️ {agent['name']} morreu de fome e virou um espólio!", "timestamp": current_time})
+            
+            # Adiciona o MORTO na lista de atualizações, mas transforma o tipo dele em "loot"
+            updates_agents.append({
+                "id": agent['id'], 
+                "type": "loot",  # <-- O PULO DO GATO: Vira um saco de couro!
+                "x": new_x, "z": new_z, 
+                "hp": 0.0, "hunger": 0.0,
+                "inv": survival_brain.inventory_sys.to_string(inv), # A herança fica guardada aqui!
+                "mem": json.dumps(safe_memory),
+                "state": "DEAD"
+            })
+            continue # Pula as ações físicas (o morto não pode colher nem plantar)
 
         # 3. Execução das Ações Físicas (Logs de Sucesso/Morte)
         if action == "EAT_INVENTORY":
@@ -67,6 +138,34 @@ def process_survival_tick(survival_brain, session):
                 recovered = biology.consume_food({'hunger': new_hunger, 'hp': new_hp})
                 new_hunger, new_hp = recovered['hunger'], recovered['hp']
                 events.append({"id": str(uuid.uuid4()), "level": "WARNING", "message": f"{agent_name} — Inventário: Consumiu 1 batata (Nova fome: {new_hunger:.1f}%)", "timestamp": current_time})
+                
+        # === O MOTOR DE COMBATE ===
+        elif action == "ATTACK_AGENT":
+            target_agent = next((a for a in agents if a['id'] == target_id), None)
+            if target_agent:
+                # O lobo arranca 20 pontos de Vida!
+                target_agent['hp'] = target_agent.get('hp', 100.0) - 20.0
+                events.append({"id": str(uuid.uuid4()), "level": "ERROR", "message": f"🩸 {agent_name} cravou os dentes em {target_agent.get('name', 'Alguém')}! (-20 HP)", "timestamp": current_time})
+                
+                # === CORREÇÃO DA PERSISTÊNCIA DE DANO ===
+                # Intercepta a vítima na fila de gravação deste tick e força a descida do HP!
+                for up in updates_agents:
+                    if up['id'] == target_id:
+                        up['hp'] = target_agent['hp']
+                        up['state'] = "BLEEDING"
+                        # Se o ataque foi fatal, transforma-o em Loot antes mesmo do próximo turno
+                        if target_agent['hp'] <= 0:
+                            up['type'] = 'loot'
+                            up['state'] = 'DEAD'
+
+        elif action == "ATTACK_FENCE":
+            target_entity = next((e for e in world_entities if e['id'] == target_id), None)
+            if target_entity:
+                events.append({"id": str(uuid.uuid4()), "level": "WARNING", "message": f"🐾 {agent_name} destruiu a cerca aos pedaços!", "timestamp": current_time})
+                
+                # A cerca íntegra morre e vira uma 'damaged_fence' imediatamente
+                updates_agents.append({"id": target_id, "type": "damaged_fence", "x": target_entity['x'], "z": target_entity['z'], "hp": 0, "hunger": 0, "inv": "{}", "mem": "{}", "state": "IDLE"})
+                world_entities = [e for e in world_entities if e['id'] != target_id]
 
         elif action == "HARVEST":
             tile = tiles_map.get(target_id)
@@ -101,10 +200,156 @@ def process_survival_tick(survival_brain, session):
                     crops.append({"id": str(uuid.uuid4()), "type": "potato", "stage": 0, "positionOffset": offset})
                     tile['cropsJSON'] = json.dumps(crops)
                     updates_tiles.append(tile)
+                    
+        elif action == "LOOT":
+            target_entity = next((e for e in world_entities if e['id'] == target_id), None)
+            if target_entity:
+                # O Saco de Loot tem uma mochila virtual
+                loot_inv = survival_brain.inventory_sys.parse(target_entity.get('inventoryJSON', "{}"))
+                
+                # Transfere tudo para o agente vivo
+                inv['plobs'] = inv.get('plobs', 0.0) + loot_inv.get('plobs', 0.0)
+                inv['potatoes'] = inv.get('potatoes', 0) + loot_inv.get('potatoes', 0)
+                
+                events.append({"id": str(uuid.uuid4()), "level": "SUCCESS", "message": f"💰 {agent_name} recolheu {loot_inv.get('plobs', 0.0)} Plobs de um espólio!", "timestamp": current_time})
+                
+                # Marca o saco de loot para ser deletado do banco de dados
+                dead_agents.append(target_id)
+                # Remove da memória visual para não tentarem saquear de novo neste tick
+                world_entities = [e for e in world_entities if e['id'] != target_id]
 
-        # Adiciona a memória e estado ao pacote de atualização
+        elif action == "CHOP_TREE":
+            target_entity = next((e for e in world_entities if e['id'] == target_id), None)
+            if target_entity:
+                # Chama a física que você criou no novo arquivo!
+                stump_update, dropped_logs, evt = ForestrySystem.process_chopping(target_entity, current_time, agent_name)
+                
+                events.append(evt)
+                updates_agents.append(stump_update)          # Transforma em toco
+                new_entities_to_create.extend(dropped_logs)  # Agenda a criação dos 3 troncos no Neo4j
+                
+                # Remove a árvore da visão neste exato segundo para ele não bater nela de novo
+                world_entities = [e for e in world_entities if e['id'] != target_id]
+
+        elif action == "COLLECT_LOG":
+            target_entity = next((e for e in world_entities if e['id'] == target_id), None)
+            if target_entity:
+                # === A TRAVA FÍSICA AQUI ===
+                if survival_brain.inventory_sys.can_collect_log(inv):
+                    inv['logs'] = inv.get('logs', 0) + 1
+                    events.append({"id": str(uuid.uuid4()), "level": "INFO", "message": f"🪵 {agent_name} recolheu 1 Tronco para a mochila.", "timestamp": current_time})
+                    dead_agents.append(target_id) 
+                    world_entities = [e for e in world_entities if e['id'] != target_id]
+                else:
+                    events.append({"id": str(uuid.uuid4()), "level": "WARNING", "message": f"🎒 {agent_name} tentou recolher, mas a mochila de madeira está cheia (Limite: 10)!", "timestamp": current_time})
+
+                      
+        elif action == "COLLECT_STONE":
+            target_entity = next((e for e in world_entities if e['id'] == target_id), None)
+            if target_entity and survival_brain.inventory_sys.can_collect_stone(inv):
+                inv['stones'] = inv.get('stones', 0) + 1
+                events.append({"id": str(uuid.uuid4()), "level": "INFO", "message": f"🪨 {agent_name} recolheu 1 Pedra.", "timestamp": current_time})
+                dead_agents.append(target_id)
+                world_entities = [e for e in world_entities if e['id'] != target_id]
+
+        # === NOVA AÇÃO: Compra de Troncos (B2B) ===
+        elif action == "TRADE_LOGS":
+            target_agent = next((a for a in agents if a['id'] == target_id), None)
+            if target_agent:
+                seller_inv = survival_brain.inventory_sys.parse(target_agent.get('inventoryJSON', "{}"))
+                # Negociação de preço para troncos
+                deal = economy.negotiate_deal(agent, target_agent, "logs", 1)
+                
+                if deal["success"]:
+                    success, b_inv, s_inv, msg = economy.execute_trade(inv, seller_inv, "logs", deal["price"], 1)
+                    if success:
+                        inv = b_inv
+                        target_agent['inventoryJSON'] = survival_brain.inventory_sys.to_string(s_inv)
+                        events.append({"id": str(uuid.uuid4()), "level": "SUCCESS", "message": f"🤝 {agent_name} comprou 1 Tronco de {target_agent['name']} por {deal['price']} Plobs.", "timestamp": current_time})
+
+        elif action == "CRAFT_FENCE":
+            # Agora custa 2 TRONCOS (Logs)
+            if inv.get('logs', 0) >= 2 and survival_brain.inventory_sys.can_carry_fence(inv):
+                inv['logs'] -= 2
+                inv['fences'] = inv.get('fences', 0) + 1
+                biology.process_tick(agent, "ACTION") # Gasta energia
+                events.append({"id": str(uuid.uuid4()), "level": "SUCCESS", "message": f"⚒️ {agent_name} fabricou uma cerca (Consumiu 2 Madeiras).", "timestamp": current_time})
+
+        elif action == "REPAIR_FENCE":
+            target_entity = next((e for e in world_entities if e['id'] == target_id), None)
+            # Encontra o cliente (o fazendeiro mais próximo da cerca)
+            customer = min([a for a in agents if a['type'] == 'farmer'], 
+                           key=lambda f: math.hypot(f['posX']-target_entity['x'], f['posZ']-target_entity['z']), 
+                           default=None)
+            
+            if target_entity and inv.get('fences', 0) > 0 and customer:
+                cust_inv = survival_brain.inventory_sys.parse(customer.get('inventoryJSON', "{}"))
+                fee = economy.BASE_PRICES['fences'] * 0.8
+                
+                # O dinheiro sai do Fazendeiro para o Construtor!
+                if cust_inv.get('plobs', 0) >= fee:
+                    cust_inv['plobs'] -= fee
+                    inv['plobs'] += fee
+                    inv['fences'] -= 1
+                    customer['inventoryJSON'] = survival_brain.inventory_sys.to_string(cust_inv)
+                    
+                    events.append({"id": str(uuid.uuid4()), "level": "SUCCESS", "message": f"🚧 {agent_name} reparou a cerca. {customer['name']} pagou {fee} Plobs.", "timestamp": current_time})
+                    updates_agents.append({"id": target_id, "type": "fence", "x": target_entity['x'], "z": target_entity['z'], "hp": 0, "hunger": 0, "inv": "{}", "mem": "{}", "state": "IDLE"})
+                    
+        elif action == "TRADE":
+            # Acha o parceiro de negócios na lista global
+            target_agent = next((a for a in agents if a['id'] == target_id), None)
+            if target_agent:
+                # === CORREÇÃO DE TIPO AQUI ===
+                # Em vez de passar o agente bruto, passamos dicionários limpos
+                buyer_inv_dict = inv # Já é um dicionário (foi parseado no início do loop)
+                seller_inv_dict = survival_brain.inventory_sys.parse(target_agent.get('inventoryJSON', "{}"))
+                
+                # Criamos cópias temporárias para o sistema de negociação ler como dicionários
+                buyer_data = {
+                    "inventoryJSON": buyer_inv_dict,
+                    "hunger": agent.get('hunger', 100),
+                    "lieLevel": agent.get('lieLevel', 0)
+                }
+                seller_data = {
+                    "inventoryJSON": seller_inv_dict,
+                    "hunger": target_agent.get('hunger', 100),
+                    "lieLevel": target_agent.get('lieLevel', 0)
+                }
+
+                # O motor financeiro agora recebe dicionários e não dará mais erro de 'str'
+                deal = economy.negotiate_deal(buyer_data, seller_data, "potatoes", 1)
+                
+                if deal["success"]:
+                    # Executa a troca física de valores
+                    success, new_b_inv, new_s_inv, msg = economy.execute_trade(
+                        buyer_inv_dict, seller_inv_dict, "potatoes", deal["price"], 1
+                    )
+                    
+                    if success:
+                        inv = new_b_inv # Atualiza a mochila do comprador
+                        # Atualiza a mochila do vendedor no objeto que será salvo no banco
+                        target_agent['inventoryJSON'] = survival_brain.inventory_sys.to_string(new_s_inv)
+                        
+                        events.append({
+                            "id": str(uuid.uuid4()), 
+                            "level": "SUCCESS", 
+                            "message": f"🤝 {agent_name} comprou 1 Batata de {target_agent.get('name')} por {deal['price']} Plobs!", 
+                            "timestamp": current_time
+                        })
+                else:
+                    events.append({
+                        "id": str(uuid.uuid4()), 
+                        "level": "WARNING", 
+                        "message": f"💸 Falha: {agent_name} tentou comprar, mas {target_agent.get('name')} pediu caro demais!", 
+                        "timestamp": current_time
+                    })
+
+        # Adiciona a memória e estado ao pacote de atualização (PARA OS VIVOS)
         updates_agents.append({
-            "id": agent['id'], "x": new_x, "z": new_z, 
+            "id": agent['id'],
+            "type": agent['type'], # <-- Mantém a profissão original intacta!
+            "x": new_x, "z": new_z, 
             "hp": new_hp, "hunger": new_hunger,
             "inv": survival_brain.inventory_sys.to_string(inv),
             "mem": json.dumps(safe_memory),
@@ -138,18 +383,38 @@ def process_survival_tick(survival_brain, session):
     if dead_agents:
         session.run("MATCH (e:Entity) WHERE e.id IN $ids DETACH DELETE e", ids=dead_agents)
         
+    # === CRIAÇÃO DE NOVAS ENTIDADES (ex: Troncos caídos) ===
+    if new_entities_to_create:
+        session.run("""
+        UNWIND $entities AS ent
+        CREATE (e:Entity {
+            id: ent.id, type: ent.type, posX: ent.posX, posY: ent.posY, posZ: ent.posZ,
+            health: ent.health, hunger: ent.hunger, name: ent.name,
+            inventoryJSON: ent.inventoryJSON, memoryJSON: ent.memoryJSON, state: ent.state
+        })
+        """, entities=new_entities_to_create)
+        
     if updates_agents:
         session.run("""
         UNWIND $updates AS up
         MATCH (e:Entity {id: up.id})
-        SET e.posX = up.x, e.posZ = up.z, e.health = up.hp, e.hunger = up.hunger, e.inventoryJSON = up.inv, e.memoryJSON = up.mem, e.state = up.state
+        // O PULO DO GATO: Atualizamos o TIPO da entidade dinamicamente!
+        // Se ele morreu, vira 'loot'. Se está vivo, continua 'farmer/builder/etc'
+        SET e.type = up.type, 
+            e.posX = up.x, 
+            e.posZ = up.z, 
+            e.health = up.hp, 
+            e.hunger = up.hunger, 
+            e.inventoryJSON = up.inv, 
+            e.memoryJSON = up.mem, 
+            e.state = up.state
         """, updates=updates_agents)
         
     if updates_tiles:
         session.run("""
         UNWIND $updates AS up
         MATCH (t:Tile {id: up.id})
-        SET t.type = up.type, t.cropsJSON = up.cropsJSON
+        SET t.cropsJSON = up.cropsJSON
         """, updates=updates_tiles)
 
     return {

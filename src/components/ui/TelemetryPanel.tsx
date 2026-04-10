@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import type { SimulationEvent, RouteAnalytics } from '../../types';
 import SurvivalLogPanel from './SurvivalLogPanel'; // <-- Importando a Caixa-Preta!
 
@@ -10,9 +10,16 @@ interface TelemetryProps {
 
 export default function TelemetryPanel({ events, analytics, currentMode }: TelemetryProps) {
   const [activeTabRoutes, setActiveTabRoutes] = useState<'events' | 'routes' | 'ranking'>('events');
-  
+
   const [hideCactusDeaths, setHideCactusDeaths] = useState(false);
   const [hideOutOfBounds, setHideOutOfBounds] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = 0; // Força a rolagem para o início (topo)
+    }
+  }, [events]);
 
   const filteredEvents = useMemo(() => {
     return events.filter(evt => {
@@ -30,11 +37,11 @@ export default function TelemetryPanel({ events, analytics, currentMode }: Telem
           {currentMode === 'SURVIVAL' ? 'MODO ECOSSISTEMA' : 'MODO Q-LEARNING'}
         </span>
       </div>
-      
+
       <div className="telemetry-content" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-        
+
         {/* === RENDERIZAÇÃO CONDICIONAL BASEADA NO MODO DO JOGO === */}
-        
+
         {currentMode === 'SURVIVAL' ? (
           /* CAIXA PRETA DE SOBREVIVÊNCIA */
           <div style={{ flexGrow: 1, overflow: 'hidden' }}>
@@ -61,7 +68,9 @@ export default function TelemetryPanel({ events, analytics, currentMode }: Telem
                     </button>
                   </div>
                   {filteredEvents.length === 0 && <p className="empty-state-light">Aguardando eventos...</p>}
-                  <div className="events-scroll-area">
+
+                  {/* ADICIONE O REF AQUI e garanta o overflow-y: auto */}
+                  <div className="events-scroll-area" ref={scrollRef} style={{ overflowY: 'auto', height: '100%' }}>
                     {filteredEvents.map((evt, idx) => (
                       <div key={evt.id || idx} className={`log-entry-light ${evt.level.toLowerCase()}`}>
                         <span className="log-time-light">{evt.timestamp || new Date().toLocaleTimeString()}</span>

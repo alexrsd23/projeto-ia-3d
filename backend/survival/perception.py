@@ -10,7 +10,7 @@ class PerceptionSystem:
         # Quantos blocos de distância o agente consegue ver
         self.vision_radius = vision_radius
 
-    def scan_environment(self, agent_pos, world_entities, world_tiles):
+    def scan_environment(self, agent_pos, world_entities, world_tiles, peer_agents=[]):
         """
         Filtra o mundo global e devolve apenas o que o agente consegue ver,
         já organizado e ordenado do mais próximo para o mais distante.
@@ -26,7 +26,7 @@ class PerceptionSystem:
             "other_agents": []     # Concorrência / Outros agentes
         }
 
-        # 1. Analisa as Entidades Físicas (Cactos e Outros Agentes)
+        # 1. Analisa as Entidades Físicas (Cactos, Árvores, Loot, etc)
         for entity in world_entities:
             ex, ez = entity.get('x'), entity.get('z')
             if ex is None or ez is None:
@@ -34,15 +34,24 @@ class PerceptionSystem:
                 
             dist = math.hypot(ex - ax, ez - az)
             
-            # Se está dentro do raio de visão e não é ele mesmo (dist > 0.1)
-            if 0.1 < dist <= self.vision_radius:
+            # === A CORREÇÃO ESTÁ AQUI: Removemos o "0.1 <" ===
+            if dist <= self.vision_radius:
                 item = {"id": entity['id'], "x": ex, "z": ez, "dist": dist}
                 
                 if entity['type'] == 'cactus':
                     seen_data["hazards"].append(item)
                 elif entity['type'] == 'character':
-                    # Pode ser útil no futuro para partilhar comida ou lutar
                     seen_data["other_agents"].append(item)
+                elif entity['type'] == 'loot':
+                    seen_data.setdefault("loots", []).append(item)
+                elif entity['type'] == 'tree':
+                    seen_data.setdefault("trees", []).append(item)
+                elif entity['type'] == 'damaged_fence':
+                    seen_data.setdefault("broken_fences", []).append(item)
+                elif entity['type'] == 'log':
+                    seen_data.setdefault("logs_on_ground", []).append(item)
+                elif entity['type'] in ['fence', 'gate']:
+                    seen_data.setdefault("fences", []).append(item)
 
         # 2. Analisa o Chão e as Plantações (Tiles)
         for tile in world_tiles:
@@ -85,6 +94,26 @@ class PerceptionSystem:
 
         # 3. Otimização: Ordena tudo do mais perto para o mais longe
         # Isto facilita o trabalho do cérebro para ir sempre à batata mais próxima
+        for key in seen_data:
+            seen_data[key] = sorted(seen_data[key], key=lambda item: item['dist'])
+
+        # === NOVO: O RADAR SOCIAL (Vê os outros bonecos) ===
+        for peer in peer_agents:
+            px, pz = peer.get('x'), peer.get('z')
+            if px is None or pz is None or peer.get('id') == agent_pos[2]: # Passaremos o agent_id na pos[2] para ele não ver a si mesmo
+                continue
+                
+            dist = math.hypot(px - ax, pz - az)
+            if dist <= self.vision_radius:
+                seen_data["other_agents"].append({
+                    "id": peer['id'], 
+                    "type": peer['type'], # Crucial: Saber a profissão do outro!
+                    "name": peer.get('name', 'Desconhecido'),
+                    "x": px, "z": pz, 
+                    "dist": dist
+                })
+
+        # 3. Otimização: Ordena tudo do mais perto para o mais longe
         for key in seen_data:
             seen_data[key] = sorted(seen_data[key], key=lambda item: item['dist'])
 

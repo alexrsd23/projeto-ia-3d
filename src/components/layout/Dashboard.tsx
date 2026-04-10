@@ -1,13 +1,14 @@
 import { useState, useEffect } from 'react';
 import { type Entity } from '../../types';
-import FarmerInfoCard from '../ui/FarmerInfoCard';
+import FarmerInfoCard from '../ui/CharacterInfoCard';
+import CharacterInfoCard from '../ui/CharacterInfoCard';
 
 interface RouteBounds {
   xMin: number; xMax: number; zMin: number; zMax: number;
 }
 
 interface DashboardProps {
-  onAddEntity: (type: 'house' | 'character' | 'cactus' | 'farmer', amount?: number) => void; 
+  onAddEntity: (type: 'house' | 'character' | 'cactus' | 'farmer' | 'woodcutter' | 'builder' | 'tree' | 'stone' | 'fence' | 'log' | 'wolf' | 'damaged_fence' | 'gate', amount?: number) => void;
   isRunning: boolean;
   onToggleSimulation: () => void;
   selectedEntity: Entity | undefined;
@@ -28,6 +29,7 @@ interface DashboardProps {
   onToggleShowNames: () => void;
   currentMode: string;
   onSwitchMode: (mode: string) => void;
+  onClearLogs: () => void;
 }
 
 export default function Dashboard({
@@ -35,10 +37,10 @@ export default function Dashboard({
   onSaveIdentity, onToggleDayNight, isDay, selectedTile,
   onPlow, onPlant, onDeselectTile,
   isRouteTestingMode, onToggleRouteTesting, routeBounds, setRouteBounds,
-  onKillAllAgents, showNames, onToggleShowNames, onClearAIMemory, 
-  currentMode, onSwitchMode
+  onKillAllAgents, showNames, onToggleShowNames, onClearAIMemory,
+  currentMode, onSwitchMode, onClearLogs
 }: DashboardProps) {
-  
+
   const [name, setName] = useState('');
   const [birthdate, setBirthdate] = useState('');
   const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
@@ -53,42 +55,42 @@ export default function Dashboard({
 
   return (
     <div className="light-dashboard">
-      
+
       <div className="dashboard-header">
         <h2>Painel de Controle</h2>
         <p className="subtitle">SIMULADOR IA 3D</p>
       </div>
 
       <div className="dashboard-content">
-        
+
         {/* === GRID DE BOTÕES DE AÇÃO === */}
         <div className="action-grid">
 
           {/* === NOVO: CONTROLE NEURAL (O CÉREBRO) === */}
-        <div className="card-panel">
-          <div className="panel-header-flex" style={{ paddingBottom: '8px', marginBottom: '8px' }}>
-            <h3 className="panel-title-light">🧠 Módulo Neural</h3>
+          <div className="card-panel">
+            <div className="panel-header-flex" style={{ paddingBottom: '8px', marginBottom: '8px' }}>
+              <h3 className="panel-title-light">🧠 Módulo Neural</h3>
+            </div>
+            <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '12px' }}>
+              Fluxo atual: <strong>{currentMode === 'ROUTES' ? 'Modo Rotas (Pytorch)' : 'Modo Sobrevivência (Instinto)'}</strong>
+            </p>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                className={`btn-light-action ${currentMode === 'ROUTES' ? 'primary' : ''}`}
+                onClick={() => onSwitchMode('ROUTES')}
+              >
+                📍 Encontrar Rotas
+              </button>
+              <button
+                className={`btn-light-action ${currentMode === 'SURVIVAL' ? 'primary' : ''}`}
+                style={currentMode === 'SURVIVAL' ? { background: '#10b981', borderColor: '#059669' } : undefined}
+                onClick={() => onSwitchMode('SURVIVAL')}
+              >
+                🛡️ Sobrevivência
+              </button>
+            </div>
           </div>
-          <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '12px' }}>
-            Fluxo atual: <strong>{currentMode === 'ROUTES' ? 'Modo Rotas (Pytorch)' : 'Modo Sobrevivência (Instinto)'}</strong>
-          </p>
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <button 
-              className={`btn-light-action ${currentMode === 'ROUTES' ? 'primary' : ''}`}
-              onClick={() => onSwitchMode('ROUTES')}
-            >
-              📍 Encontrar Rotas
-            </button>
-            <button 
-              className={`btn-light-action ${currentMode === 'SURVIVAL' ? 'primary' : ''}`}
-              style={currentMode === 'SURVIVAL' ? { background: '#10b981', borderColor: '#059669' } : undefined}
-              onClick={() => onSwitchMode('SURVIVAL')}
-            >
-              🛡️ Sobrevivência
-            </button>
-          </div>
-        </div>
-          
+
           <button className="card-btn full" onClick={onToggleSimulation}>
             <span className="icon-large">{isRunning ? '⏸' : '▷'}</span>
             <span>{isRunning ? 'Pausar Simulação' : 'Iniciar Simulação'}</span>
@@ -131,6 +133,11 @@ export default function Dashboard({
             <span>Amnésia: Limpar Memória IA</span>
           </button>
 
+          <button className="card-btn half" onClick={onClearLogs}>
+            <span className="icon-large">🧹</span>
+            <span>Limpar Terminal Log</span>
+          </button>
+
         </div>
 
         {/* === ÁREA DE SPAWN (Só visível se modo de teste ON) === */}
@@ -144,19 +151,19 @@ export default function Dashboard({
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
               <div>
                 <label className="light-label">X Mínimo</label>
-                <input type="number" step="2" className="light-input" value={routeBounds.xMin} onChange={e => setRouteBounds({...routeBounds, xMin: Number(e.target.value)})} />
+                <input type="number" step="2" className="light-input" value={routeBounds.xMin} onChange={e => setRouteBounds({ ...routeBounds, xMin: Number(e.target.value) })} />
               </div>
               <div>
                 <label className="light-label">X Máximo</label>
-                <input type="number" step="2" className="light-input" value={routeBounds.xMax} onChange={e => setRouteBounds({...routeBounds, xMax: Number(e.target.value)})} />
+                <input type="number" step="2" className="light-input" value={routeBounds.xMax} onChange={e => setRouteBounds({ ...routeBounds, xMax: Number(e.target.value) })} />
               </div>
               <div>
                 <label className="light-label">Z Mínimo</label>
-                <input type="number" step="2" className="light-input" value={routeBounds.zMin} onChange={e => setRouteBounds({...routeBounds, zMin: Number(e.target.value)})} />
+                <input type="number" step="2" className="light-input" value={routeBounds.zMin} onChange={e => setRouteBounds({ ...routeBounds, zMin: Number(e.target.value) })} />
               </div>
               <div>
                 <label className="light-label">Z Máximo</label>
-                <input type="number" step="2" className="light-input" value={routeBounds.zMax} onChange={e => setRouteBounds({...routeBounds, zMax: Number(e.target.value)})} />
+                <input type="number" step="2" className="light-input" value={routeBounds.zMax} onChange={e => setRouteBounds({ ...routeBounds, zMax: Number(e.target.value) })} />
               </div>
             </div>
           </div>
@@ -168,8 +175,8 @@ export default function Dashboard({
             <span>➕ Adicionar Entidades</span>
             <span style={{ fontSize: '12px', color: '#94a3b8' }}>{isAddMenuOpen ? '▲' : '▼'}</span>
           </button>
-          
-          <div className={`dropdown-content-light ${isAddMenuOpen ? 'open' : ''}`}>
+
+          <div className={`dropdown-content-light ${isAddMenuOpen ? 'open' : ''}`} style={{ maxHeight: '350px', overflowY: 'auto' }}>
             <div style={{ padding: '12px 16px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <label className="light-label" style={{ margin: 0 }}>Quantidade:</label>
               <input type="number" min="1" max="200" className="light-input" style={{ width: '60px', padding: '4px', margin: 0, textAlign: 'center' }} value={spawnAmount} onChange={(e) => setSpawnAmount(Math.max(1, Number(e.target.value)))} />
@@ -178,11 +185,29 @@ export default function Dashboard({
             {currentMode === 'ROUTES' ? (
               <button className="btn-dropdown-item-light" onClick={() => onAddEntity('character', spawnAmount)}>👤⁺ Adicionar Pessoa(s)</button>
             ) : (
-              <button className="btn-dropdown-item-light" onClick={() => onAddEntity('farmer', spawnAmount)}>👨‍🌾⁺ Adicionar Fazendeiro(s)</button>
+              <>
+                <div style={{ padding: '8px 16px', fontSize: '11px', fontWeight: 'bold', color: '#94a3b8', textTransform: 'uppercase', background: '#f8fafc' }}>👥 Personagens</div>
+                <button className="btn-dropdown-item-light" onClick={() => onAddEntity('farmer', spawnAmount)}>👨‍🌾⁺ Adicionar Fazendeiro</button>
+                <button className="btn-dropdown-item-light" onClick={() => onAddEntity('woodcutter', spawnAmount)}>🪓⁺ Adicionar Lenhador</button>
+                <button className="btn-dropdown-item-light" onClick={() => onAddEntity('builder', spawnAmount)}>👷⁺ Adicionar Construtor</button>
+
+                <div style={{ padding: '8px 16px', fontSize: '11px', fontWeight: 'bold', color: '#94a3b8', textTransform: 'uppercase', background: '#f8fafc' }}>🌲 Natureza</div>
+                <button className="btn-dropdown-item-light" onClick={() => onAddEntity('tree', spawnAmount)}>🌳⁺ Adicionar Árvore</button>
+                <button className="btn-dropdown-item-light" onClick={() => onAddEntity('stone', spawnAmount)}>🪨⁺ Adicionar Pedra</button>
+                <button className="btn-dropdown-item-light" onClick={() => onAddEntity('log', spawnAmount)}>🪵⁺ Adicionar Tronco</button>
+
+                <div style={{ padding: '8px 16px', fontSize: '11px', fontWeight: 'bold', color: '#94a3b8', textTransform: 'uppercase', background: '#f8fafc' }}>🏗️ Estruturas</div>
+                <button className="btn-dropdown-item-light" onClick={() => onAddEntity('fence', spawnAmount)}>🧱⁺ Adicionar Cerca</button>
+                <button className="btn-dropdown-item-light" onClick={() => onAddEntity('gate', spawnAmount)}>🚪⁺ Adicionar Portão</button>
+              </>
             )}
-            
+
+            <div style={{ padding: '8px 16px', fontSize: '11px', fontWeight: 'bold', color: '#94a3b8', textTransform: 'uppercase', background: '#f8fafc' }}>⚠️ Outros</div>
             <button className="btn-dropdown-item-light" onClick={() => onAddEntity('house', spawnAmount)}>🏠⁺ Adicionar Casa(s)</button>
             <button className="btn-dropdown-item-light" onClick={() => onAddEntity('cactus', spawnAmount)}>🌵⁺ Adicionar Cacto(s)</button>
+            <button className="btn-dropdown-item-light" style={{ color: '#ef4444' }} onClick={() => onAddEntity('wolf', spawnAmount)}>
+              🐺⁺ Adicionar Lobo
+            </button>
           </div>
         </div>
 
@@ -191,14 +216,11 @@ export default function Dashboard({
           <div className="card-panel">
             <h3 className="panel-title-light">Informação da Entidade</h3>
             {selectedEntity ? (
-              selectedEntity.type === 'farmer' ? (
-                // === AQUI ENTRA A NOSSA OBRA DE ARTE MODULAR ===
-                <FarmerInfoCard 
-                  farmer={selectedEntity} 
-                  onSaveIdentity={onSaveIdentity} 
-                />
+              (selectedEntity.type === 'farmer' || selectedEntity.type === 'woodcutter' || selectedEntity.type === 'builder') ? (
+                // 1. Agentes Inteligentes (O nosso Super Card)
+                <CharacterInfoCard entity={selectedEntity} onSaveIdentity={onSaveIdentity} />
               ) : selectedEntity.type === 'character' ? (
-                // === MANTÉM O LAYOUT ANTIGO PARA O MODO ROTAS ===
+                // 2. Modo Rotas (Layout Antigo)
                 <div style={{ marginTop: '15px' }}>
                   <div style={{ background: '#f8fafc', padding: '10px', borderRadius: '8px', marginBottom: '15px', border: '1px solid #e2e8f0', fontSize: '13px' }}>
                     <span style={{ color: '#3b82f6', fontWeight: 600, fontFamily: 'monospace' }}>ID: {selectedEntity.id.split('-')[0]}</span>
@@ -216,7 +238,37 @@ export default function Dashboard({
                   </button>
                 </div>
               ) : (
-                <p className="empty-state-light">Estruturas (Casas/Cactos) não possuem atributos editáveis.</p>
+                // 3. NOVO LAYOUT UNIVERSAL (Lobo, Loot, Natureza e Estruturas)
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', marginTop: '15px', padding: '15px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                  <div style={{ fontSize: '40px' }}>
+                    {selectedEntity.type === 'house' ? '🏠' :
+                      selectedEntity.type === 'cactus' ? '🌵' :
+                        selectedEntity.type === 'tree' ? '🌳' :
+                          selectedEntity.type === 'stone' ? '🪨' :
+                            selectedEntity.type === 'log' ? '🪵' :
+                              selectedEntity.type === 'stump' ? '🪵' :
+                                selectedEntity.type === 'fence' ? '🧱' :
+                                  selectedEntity.type === 'damaged_fence' ? '🚧' :
+                                    selectedEntity.type === 'loot' ? '💰' :
+                                      selectedEntity.type === 'wolf' ? '🐺' : '📦'}
+                  </div>
+                  <div style={{ textAlign: 'center' }}>
+                    <p style={{ fontWeight: 700, color: '#334155', fontSize: '14px' }}>
+                      {selectedEntity.type === 'wolf' ? 'Lobo Selvagem' :
+                        selectedEntity.type === 'damaged_fence' ? 'Cerca Destruída' :
+                          selectedEntity.type === 'loot' ? 'Saco de Espólios' :
+                            selectedEntity.type === 'tree' ? 'Árvore' :
+                              selectedEntity.type === 'stone' ? 'Pedra' :
+                                selectedEntity.type === 'log' ? 'Tronco' :
+                                  selectedEntity.type === 'fence' ? 'Cerca' :
+                                    selectedEntity.type === 'house' ? 'Casa' :
+                                      selectedEntity.type === 'cactus' ? 'Cacto' : 'Objeto Desconhecido'}
+                    </p>
+                    <p style={{ fontSize: '12px', color: '#94a3b8', fontFamily: 'monospace', marginTop: '4px' }}>
+                      ID: {selectedEntity.id.split('-')[0]}
+                    </p>
+                  </div>
+                </div>
               )
             ) : (
               <p className="empty-state-light">Selecione uma entidade no cenário 3D.</p>
@@ -231,15 +283,15 @@ export default function Dashboard({
               <h3 className="panel-title-light">Terreno Selecionado</h3>
               <button className="btn-close-light" onClick={onDeselectTile}>✕</button>
             </div>
-            
+
             <div className="status-row">
-              <span style={{color: '#94a3b8'}}>Tipo:</span> 
-              <span className={`dot ${selectedTile.type === 'grass' ? 'green' : 'orange'}`}></span> 
-              <span style={{fontWeight: 600}}>{selectedTile.type === 'grass' ? 'Grama Selvagem' : 'Terra Arada'}</span>
+              <span style={{ color: '#94a3b8' }}>Tipo:</span>
+              <span className={`dot ${selectedTile.type === 'grass' ? 'green' : 'orange'}`}></span>
+              <span style={{ fontWeight: 600 }}>{selectedTile.type === 'grass' ? 'Grama Selvagem' : 'Terra Arada'}</span>
             </div>
             <div className="status-row">
-              <span style={{color: '#94a3b8'}}>Coord:</span> 
-              <span style={{fontWeight: 600, fontFamily: 'monospace'}}>X:{selectedTile.gridX} | Z:{selectedTile.gridZ}</span>
+              <span style={{ color: '#94a3b8' }}>Coord:</span>
+              <span style={{ fontWeight: 600, fontFamily: 'monospace' }}>X:{selectedTile.gridX} | Z:{selectedTile.gridZ}</span>
             </div>
 
             {selectedTile.type === 'grass' ? (

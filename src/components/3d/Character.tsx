@@ -16,6 +16,7 @@ interface CharacterProps {
 
 export default function Character({ id, position, name, isSelected, onClick, onMove, setIsDragging, showNames }: CharacterProps) {
   const meshRef = useRef<THREE.Mesh>(null);
+  const groupRef = useRef<THREE.Mesh>(null);
   const [dragging, setDragging] = useState(false);
 
   const dragPlane = useMemo(() => new THREE.Plane(new THREE.Vector3(0, 1, 0), -position[1]), [position[1]]);
@@ -30,13 +31,33 @@ export default function Character({ id, position, name, isSelected, onClick, onM
     }
   }, []);
 
-  // RENDER LOOP (60 FPS): Interpolação suave (Lerp) desacoplada da lógica!
-  useFrame((state, delta) => {
-    if (!dragging && meshRef.current) {
-      // O fator '8' define a velocidade do deslize. Quanto maior, mais rápido ele tenta alcançar o alvo.
-      meshRef.current.position.lerp(targetPos, 8 * delta);
+  // === NOVO MOTOR DE ROTAÇÃO E MOVIMENTO (Minecraft Style) ===
+// RENDER LOOP (60 FPS): Interpolação suave (Lerp) desacoplada da lógica!
+useFrame((state, delta) => {
+  // Garante que o personagem não está a ser arrastado e que o grupo existe
+  if (!dragging && groupRef.current) {
+    // 1. === CÁLCULO DE ROTAÇÃO FÍSICA (lookAt) ===
+    // Calcula a distância real entre onde o personagem está agora e para onde ele quer ir.
+    const dist = groupRef.current.position.distanceTo(targetPos);
+    
+    // Se a distância for significativa (> 0.05), ele rotaciona.
+    // Isso evita rotações espasmódicas quando está quase a chegar ao alvo.
+    if (dist > 0.05) {
+      // Cria um vetor de alvo temporário.
+      // Importante: Usamos groupRef.current.position.y para a coordenada 'y'.
+      // Isso garante que ele gire apenas no eixo horizontal e não fique a olhar "para o chão".
+      const lookAtTarget = new THREE.Vector3(targetPos.x, groupRef.current.position.y, targetPos.z);
+      
+      // A mágica do lookAt do Three.js: Gira todo o grupo para facear o alvo instantaneamente.
+      groupRef.current.lookAt(lookAtTarget);
     }
-  });
+
+    // 2. === MOVIMENTO SUAVE (Lerp) ===
+    // Desliza a posição do personagem suavemente até o alvo.
+    // O fator '8' define a velocidade do deslize. Quanto maior, mais rápido ele tenta alcançar o alvo.
+    groupRef.current.position.lerp(targetPos, 8 * delta);
+  }
+});
 
   const handlePointerDown = (e: any) => {
     e.stopPropagation();

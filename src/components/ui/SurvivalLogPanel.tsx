@@ -8,10 +8,10 @@ interface SurvivalLogPanelProps {
 export default function SurvivalLogPanel({ events }: SurvivalLogPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll para o log mais recente
+  // Força o scroll para o TOPO (onde estão os eventos mais recentes)
   useEffect(() => {
     if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      scrollRef.current.scrollTop = 0;
     }
   }, [events]);
 

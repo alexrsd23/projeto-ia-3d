@@ -198,13 +198,20 @@ def kill_all_agents():
     """Mata todos os agentes no banco de dados, mas preserva a memória da IA"""
     try:
         with driver.session() as session:
-            # Apaga apenas os personagens. Mantém casas, cactos e plantações.
-            session.run("MATCH (c:Entity {type: 'character'}) DETACH DELETE c")
-        
-        # Regista o evento heroico/trágico no log do frontend
-        ai_controller.logger.log("WARNING", "☠️ EXPURGO: Todos os agentes foram eliminados. O Aprendizado foi retido na Mente Global.")
-        
+            # Apaga todos os agentes, mantendo estruturas/recursos do mundo
+            session.run("""
+                MATCH (c:Entity)
+                WHERE c.type IN ['character', 'farmer', 'woodcutter', 'builder', 'wolf']
+                DETACH DELETE c
+            """)
+
+        ai_controller.logger.log(
+            "WARNING",
+            "☠️ EXPURGO: Todos os agentes foram eliminados. O Aprendizado foi retido na Mente Global."
+        )
+
         return {"message": "Expurgo concluído!"}
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     

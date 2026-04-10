@@ -13,14 +13,19 @@ export default function App() {
   const [entities, setEntities] = useState<Entity[]>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
-  
+
+  // === A MEMÓRIA DIVINA DE GERAÇÃO (Garante Homem -> Mulher -> Homem) ===
+  const nextSpawnSexRef = useRef<'M' | 'F'>('M');
+
+  const handleClearLogs = () => setEvents([]);
+
   const [heatmap, setHeatmap] = useState<{ gridX: number, gridZ: number, visits: number }[]>([]);
   const [events, setEvents] = useState<SimulationEvent[]>([]);
   const [lastNNAction, setLastNNAction] = useState<number>(0);
   const [selectedTileId, setSelectedTileId] = useState<string | null>(null);
 
   const [qValues, setQValues] = useState<number[]>(Array(8).fill(0));
-  const [nnState, setNNState] = useState<number[]>([0,0,0]);
+  const [nnState, setNNState] = useState<number[]>([0, 0, 0]);
 
   // MODO DE TESTE DE ROTAS
   const [isRouteTestingMode, setIsRouteTestingMode] = useState(true);
@@ -82,6 +87,16 @@ export default function App() {
     try { await fetch(`http://127.0.0.1:8000/api/entities/${id}/position`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ position: newPos }) }); } catch (error) { console.error(error); }
   };
 
+  const handleRotateEntity = async (id: string, newRotation: number) => {
+    setEntities(prev => prev.map(e => e.id === id ? { ...e, rotation: newRotation } : e));
+    try {
+      await fetch(`http://127.0.0.1:8000/api/entities/${id}/rotate`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rotation: newRotation })
+      });
+    } catch (error) { console.error(error); }
+  };
+
   const handleSaveIdentity = async (id: string, name: string, birthdate: string) => {
     setEntities(prev => prev.map(e => e.id === id ? { ...e, name, birthdate } : e));
     try { await fetch(`http://127.0.0.1:8000/api/entities/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, birthdate }) }); } catch (error) { console.error(error); }
@@ -99,7 +114,7 @@ export default function App() {
           mode = brainData.current_mode;
           setCurrentMode(mode);
         }
-        
+
         // ROTEAMENTO DINÂMICO SEGURO!
         const endpoint = mode === 'SURVIVAL' ? 'http://127.0.0.1:8000/api/entities/survival_world' : 'http://127.0.0.1:8000/api/entities';
         const resEntities = await fetch(endpoint);
@@ -139,13 +154,14 @@ export default function App() {
             if (tickData.qValues) setQValues(tickData.qValues);
             if (tickData.currentState) setNNState(tickData.currentState);
             if (tickData.events && tickData.events.length > 0) {
-              setEvents(prev => [...tickData.events, ...prev].slice(0, 2000));
+              const newEvents = [...tickData.events].reverse();
+              setEvents(prev => [...newEvents, ...prev].slice(0, 2000));
             }
           }
           // ROTEAMENTO DINÂMICO DURANTE O TICK!
           const endpoint = currentMode === 'SURVIVAL' ? 'http://127.0.0.1:8000/api/entities/survival_world' : 'http://127.0.0.1:8000/api/entities';
           const responseEntities = await fetch(endpoint);
-          
+
           if (responseEntities.ok) setEntities(await responseEntities.json());
           const responseTiles = await fetch('http://127.0.0.1:8000/api/tiles');
           if (responseTiles.ok) {
@@ -166,12 +182,15 @@ export default function App() {
   }, [isRunning]);
 
 
- // ========================================================
-  // SPAWN CONTROLLER REFINADO (GERAÇÃO EM MASSA)
   // ========================================================
-  const handleAddEntity = async (type: 'house' | 'character' | 'cactus' | 'farmer', amount: number = 1) => {
+  // SPAWN CONTROLLER REFINADO (GERAÇÃO EM MASSA E DNA)
+  // ========================================================
+  const handleAddEntity = async (type: string, amount: number = 1) => {
     const newEntities: Entity[] = [];
     const fetchPromises: Promise<any>[] = [];
+
+    // Função auxiliar para o DNA visual
+    const getRandomColor = () => '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0');
 
     for (let i = 0; i < amount; i++) {
       let snapX = 0;
@@ -179,49 +198,122 @@ export default function App() {
       let validPositionFound = false;
       let attempts = 0;
 
-      // O Fazendeiro também respeita a área de teste de rotas!
-      if (isRouteTestingMode && (type === 'character' || type === 'farmer')) {
-        while (!validPositionFound && attempts < 50) {
-          const rawX = Math.random() * (routeBounds.xMax - routeBounds.xMin) + routeBounds.xMin;
-          const rawZ = Math.random() * (routeBounds.zMax - routeBounds.zMin) + routeBounds.zMin;
-          
-          snapX = Math.round(rawX / 2) * 2;
-          snapZ = Math.round(rawZ / 2) * 2;
-          snapX = Math.max(routeBounds.xMin, Math.min(routeBounds.xMax, snapX));
-          snapZ = Math.max(routeBounds.zMin, Math.min(routeBounds.zMax, snapZ));
+      // === SISTEMA DE BIOLOGIA E GENÉTICA (GERAÇÃO 0) ===
+      const isSentient = ['character', 'farmer', 'woodcutter', 'builder', 'wolf'].includes(type);
+      let agentSex = 'M';
+      let agentColor = '#ffffff';
+      let agentProfession = 'Desempregado';
+      let agentTrust = 50;
+      let agentLie = 0;
 
-          const isOccupied = entities.some(e => e.position[0] === snapX && e.position[2] === snapZ) ||
-                             newEntities.some(e => e.position[0] === snapX && e.position[2] === snapZ);
-          
-          if (!isOccupied) validPositionFound = true;
-          attempts++;
+      if (isSentient) {
+        // Regra Divina: Alterna o sexo estritamente
+        agentSex = nextSpawnSexRef.current;
+        nextSpawnSexRef.current = nextSpawnSexRef.current === 'M' ? 'F' : 'M';
+
+        agentColor = getRandomColor();
+        // A natureza lhes dá personalidades caóticas de berço (0 a 100)
+        agentTrust = Math.floor(Math.random() * 101);
+        agentLie = Math.floor(Math.random() * 101);
+
+        switch (type) {
+          case 'farmer': agentProfession = 'Fazendeiro'; break;
+          case 'woodcutter': agentProfession = 'Lenhador'; break;
+          case 'builder': agentProfession = 'Construtor'; break;
+          case 'character': agentProfession = 'Explorador'; break;
+          case 'wolf': agentProfession = 'Lobo Selvagem'; break;
         }
-      } else {
-        const rawX = (Math.random() - 0.5) * 20;
-        const rawZ = (Math.random() - 0.5) * 20;
-        snapX = Math.round(rawX / 2) * 2;
-        snapZ = Math.round(rawZ / 2) * 2;
       }
 
-      const positionY = type === 'house' ? 0.5 : (type === 'cactus' ? -0.5 : 0.5);
+      // === SISTEMA DE POSICIONAMENTO INTELIGENTE (Anti-Sobreposição Universal) ===
+      while (!validPositionFound && attempts < 50) {
+        let rawX, rawZ;
+
+        // 1. Gera coordenadas baseadas na regra (Área de Teste vs Mapa Inteiro)
+        if (isRouteTestingMode && isSentient) {
+          rawX = Math.random() * (routeBounds.xMax - routeBounds.xMin) + routeBounds.xMin;
+          rawZ = Math.random() * (routeBounds.zMax - routeBounds.zMin) + routeBounds.zMin;
+        } else {
+          // O mapa vai de -24 a 24 (tamanho total de 48)
+          rawX = (Math.random() - 0.5) * 48;
+          rawZ = (Math.random() - 0.5) * 48;
+        }
+
+        // 2. Trava na grade 2x2 para alinhamento perfeito
+        snapX = Math.round(rawX / 2) * 2;
+        snapZ = Math.round(rawZ / 2) * 2;
+
+        // 3. Trava de segurança para não nascer fora dos limites do mapa
+        if (isRouteTestingMode && isSentient) {
+          snapX = Math.max(routeBounds.xMin, Math.min(routeBounds.xMax, snapX));
+          snapZ = Math.max(routeBounds.zMin, Math.min(routeBounds.zMax, snapZ));
+        } else {
+          snapX = Math.max(-24, Math.min(24, snapX));
+          snapZ = Math.max(-24, Math.min(24, snapZ));
+        }
+
+        // 4. O RADAR MÁGICO: Pergunta ao sistema se já tem algo ali!
+        // (Verifica os velhos moradores E os que estão nascendo no mesmo clique)
+        const isOccupied = entities.some(e => e.position[0] === snapX && e.position[2] === snapZ) ||
+          newEntities.some(e => e.position[0] === snapX && e.position[2] === snapZ);
+
+        if (!isOccupied) {
+          validPositionFound = true; // Se está livre, achamos o lugar perfeito!
+        }
+
+        attempts++;
+      }
+
+      // Se não achou espaço livre depois de 50 tentativas, pula este boneco/árvore 
+      // para evitar travamentos infinitos se o mapa estiver cheio
+      if (!validPositionFound) continue;
+
+      // === AJUSTE DE GRAVIDADE (FÍSICA DE COLISÃO COM O CHÃO) ===
+      let positionY = 0.5; // Padrão: Personagens e Casas (Pés tocam no -0.5)
+
+      // O verdadeiro chão do mundo está na cota -0.5!
+      // A base da natureza, muros e animais quadrúpedes precisa ser "plantada" nessa cota.
+      if (['cactus', 'tree', 'stump', 'stone', 'fence', 'gate', 'damaged_fence', 'wolf'].includes(type)) {
+        positionY = -0.5;
+      }
+
+      // O tronco está deitado e tem um raio de 0.15. 
+      // Para ele ficar deitado na grama sem afundar: -0.5 + 0.15 = -0.35
+      if (type === 'log') {
+        positionY = -0.35;
+      }
+
       const randomNameNumber = Math.floor(Math.random() * 90) + 10;
 
       const newEntity: Entity = {
         id: crypto.randomUUID(),
-        type: type,
+        type: type as any,
         position: [snapX, positionY, snapZ],
-        // Ambos ganham vida e fome, mas o nome é ajustado
-        ...((type === 'character' || type === 'farmer') && {
-          name: type === 'farmer' ? `Fazendeiro ${randomNameNumber}` : `Agente ${randomNameNumber}`,
+        rotation: 0,
+        ...(isSentient && {
+          name: `${agentProfession} ${randomNameNumber}`,
           health: CHARACTER_SETTINGS.defaultHealth,
           hunger: CHARACTER_SETTINGS.defaultHunger,
+          // === INJETANDO O DNA NO BANCO DE DADOS ===
+          color: agentColor,
+          sex: agentSex as 'M' | 'F',
+          profession: agentProfession,
+          trustLevel: agentTrust,
+          lieLevel: agentLie,
+          // === A MÃO DE DEUS INJETA O CAPITAL INICIAL E A RAM AQUI ===
+          inventoryJSON: JSON.stringify({ plobs: 50.0, potatoes: 0, seeds: 0, logs: 0, stones: 0, fences: 0 }),
+          memoryJSON: JSON.stringify({ food: {}, farms: {}, hazards: {} }),
+          state: "IDLE"
         })
       };
 
       newEntities.push(newEntity);
 
-      // ROTEAMENTO DINÂMICO DE CRIAÇÃO: Via expressa para o Fazendeiro!
-      const endpoint = type === 'farmer' ? 'http://127.0.0.1:8000/api/entities/farmer' : 'http://127.0.0.1:8000/api/entities';
+      // Desvia o endpoint baseado na profissão para gravar as sub-tabelas corretas no Neo4j
+      let endpoint = 'http://127.0.0.1:8000/api/entities';
+      if (['farmer', 'woodcutter', 'builder', 'wolf'].includes(type)) {
+        endpoint = `http://127.0.0.1:8000/api/entities/${type}`;
+      }
 
       fetchPromises.push(
         fetch(endpoint, {
@@ -236,8 +328,8 @@ export default function App() {
 
     try {
       await Promise.all(fetchPromises);
-    } catch (error) { 
-      console.error("Erro ao gerar entidades em massa:", error); 
+    } catch (error) {
+      console.error("Erro ao gerar entidades em massa:", error);
     }
   };
 
@@ -245,11 +337,11 @@ export default function App() {
   // SISTEMA DE EXPURGO (MATA AGENTES MAS MANTÉM IA)
   // ========================================================
   const handleKillAllAgents = async () => {
-    // 1. Limpa os agentes da tela instantaneamente (mantém casas e cactos)
-    setEntities(prev => prev.filter(e => e.type !== 'character'));
-    
+    // 1. Limpa os agentes E animais da tela instantaneamente
+    setEntities(prev => prev.filter(e => !['character', 'farmer', 'woodcutter', 'builder', 'wolf'].includes(e.type)));
+
     // 2. Se o utilizador estava com um agente selecionado, desmarca-o
-    if (selectedEntity?.type === 'character') {
+    if (['character', 'farmer', 'woodcutter', 'builder', 'wolf'].includes(selectedEntity?.type || '')) {
       setSelectedEntityId(null);
     }
 
@@ -321,6 +413,7 @@ export default function App() {
         onToggleShowNames={() => setShowNames(!showNames)}
         currentMode={currentMode}
         onSwitchMode={handleSwitchMode}
+        onClearLogs={handleClearLogs}
       />
 
       <div style={{ position: 'relative', flexGrow: 1 }}>
@@ -343,7 +436,8 @@ export default function App() {
           isRouteTestingMode={isRouteTestingMode}
           routeBounds={routeBounds}
           analytics={analytics}
-          showNames={showNames} // LIGA NO VIEWPORT
+          showNames={showNames}
+          onRotateEntity={handleRotateEntity}
         />
       </div>
 

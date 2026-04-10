@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from database import driver
-from models import EntityModel, EntityUpdateModel, PositionUpdateModel, FarmerModel
+from models import EntityModel, EntityUpdateModel, PositionUpdateModel, FarmerModel, RotationUpdateModel
 
 # O prefixo organiza as URLs automaticamente
 router = APIRouter(prefix="/api/entities", tags=["Interactions"])
@@ -9,8 +9,10 @@ router = APIRouter(prefix="/api/entities", tags=["Interactions"])
 def create_entity(entity: EntityModel):
     query = """
     CREATE (e:Entity {
-        id: $id, type: $type, posX: $posX, posY: $posY, posZ: $posZ,
-        health: $health, hunger: $hunger, name: $name
+        id: $id, type: $type, posX: $posX, posY: $posY, posZ: $posZ, rotation: $rotation,
+        health: $health, hunger: $hunger, name: $name,
+        color: $color, sex: $sex, profession: $profession,
+        trustLevel: $trustLevel, lieLevel: $lieLevel
     })
     RETURN e
     """
@@ -19,7 +21,10 @@ def create_entity(entity: EntityModel):
             session.run(
                 query, id=entity.id, type=entity.type, 
                 posX=entity.position[0], posY=entity.position[1], posZ=entity.position[2], 
-                health=entity.health, hunger=entity.hunger, name=entity.name
+                rotation=entity.rotation,  # <--- A CORREÇÃO DE OURO AQUI
+                health=entity.health, hunger=entity.hunger, name=entity.name,
+                color=entity.color, sex=entity.sex, profession=entity.profession,
+                trustLevel=entity.trustLevel, lieLevel=entity.lieLevel
             )
         return {"message": f"{entity.type} criado com sucesso no Neo4j!"}
     except Exception as e:
@@ -38,63 +43,64 @@ def get_entities():
                     "id": node["id"],
                     "type": node["type"],
                     "position": [node["posX"], node["posY"], node["posZ"]],
-                    "name": node.get("name"),
-                    "birthdate": node.get("birthdate"),
-                    "health": node.get("health"),
-                    "hunger": node.get("hunger")
+                    "name": node.get("name")
                 })
         return entities
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.patch("/{entity_id}")
-def update_entity_identity(entity_id: str, data: EntityUpdateModel):
-    query = "MATCH (e:Entity {id: $id}) SET e.name = $name, e.birthdate = $birthdate RETURN e"
-    try:
-        with driver.session() as session:
-            session.run(query, id=entity_id, name=data.name, birthdate=data.birthdate)
-        return {"message": "Identidade atualizada com sucesso!"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+# ==========================================
+# ROTAS DOS AGENTES SENSITIVOS (COM DNA)
+# Usamos o FarmerModel pois todos têm Inventário e Memória
+# ==========================================
 
-@router.patch("/{entity_id}/position")
-def update_entity_position(entity_id: str, data: PositionUpdateModel):
-    query = "MATCH (e:Entity {id: $id}) SET e.posX = $x, e.posY = $y, e.posZ = $z RETURN e"
-    try:
-        with driver.session() as session:
-            session.run(query, id=entity_id, x=data.position[0], y=data.position[1], z=data.position[2])
-        return {"message": "Posição salva!"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    
-# =====================================================================
-# MODO SOBREVIVÊNCIA: Rotas exclusivas para não afetar o sistema de rotas
-# =====================================================================
-@router.post("/farmer")
-def create_farmer(farmer: FarmerModel):
-    query = """
-    CREATE (e:Entity {
-        id: $id, type: 'farmer', posX: $posX, posY: $posY, posZ: $posZ,
-        health: $health, hunger: $hunger, name: $name, 
+def create_agent_query(agent_type: str):
+    return f"""
+    CREATE (e:Entity {{
+        id: $id, type: '{agent_type}', posX: $posX, posY: $posY, posZ: $posZ,
+        health: $health, hunger: $hunger, name: $name,
+        color: $color, sex: $sex, profession: $profession,
+        trustLevel: $trustLevel, lieLevel: $lieLevel,
         inventoryJSON: $inv, memoryJSON: $mem, state: $state
-    })
+    }})
     RETURN e
     """
+
+def execute_agent_creation(agent: FarmerModel, agent_type: str):
     try:
         with driver.session() as session:
             session.run(
-                query, id=farmer.id, 
-                posX=farmer.position[0], posY=farmer.position[1], posZ=farmer.position[2], 
-                health=farmer.health, hunger=farmer.hunger, name=farmer.name,
-                inv=farmer.inventoryJSON, mem=farmer.memoryJSON, state=farmer.state
+                create_agent_query(agent_type), 
+                id=agent.id,
+                posX=agent.position[0], posY=agent.position[1], posZ=agent.position[2], 
+                health=agent.health, hunger=agent.hunger, name=agent.name,
+                color=agent.color, sex=agent.sex, profession=agent.profession,
+                trustLevel=agent.trustLevel, lieLevel=agent.lieLevel,
+                inv=agent.inventoryJSON, mem=agent.memoryJSON, state=agent.state
             )
-        return {"message": "Fazendeiro criado com sucesso!"}
+        return {"message": f"{agent_type} criado com sucesso!"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.post("/farmer")
+def create_farmer(farmer: FarmerModel):
+    return execute_agent_creation(farmer, 'farmer')
+
+@router.post("/woodcutter")
+def create_woodcutter(woodcutter: FarmerModel):
+    return execute_agent_creation(woodcutter, 'woodcutter')
+
+@router.post("/builder")
+def create_builder(builder: FarmerModel):
+    return execute_agent_creation(builder, 'builder')
+
+# ==========================================
+# O "OLHO DE DEUS" (Carrega o mundo inteiro)
+# ==========================================
+
 @router.get("/survival_world")
 def get_survival_entities():
-    """Nova Rota GET: Retorna todas as entidades, incluindo a memória e estado dos fazendeiros."""
+    """Retorna todas as entidades, incluindo a memória, estado e DNA dos agentes."""
     query = "MATCH (e:Entity) RETURN e"
     entities = []
     try:
@@ -106,14 +112,89 @@ def get_survival_entities():
                     "id": node["id"],
                     "type": node["type"],
                     "position": [node["posX"], node["posY"], node["posZ"]],
+                    "rotation": node.get("rotation", 0.0),
                     "name": node.get("name"),
                     "birthdate": node.get("birthdate"),
                     "health": node.get("health"),
                     "hunger": node.get("hunger"),
                     "inventoryJSON": node.get("inventoryJSON"),
                     "memoryJSON": node.get("memoryJSON"),
-                    "state": node.get("state")
+                    "state": node.get("state"),
+                    # === INJEÇÃO DO DNA NA LEITURA ===
+                    "color": node.get("color"),
+                    "sex": node.get("sex"),
+                    "profession": node.get("profession"),
+                    "trustLevel": node.get("trustLevel"),
+                    "lieLevel": node.get("lieLevel")
                 })
         return entities
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# ... (Mantenha as suas rotas PUT e DELETE originais aqui em baixo) ...
+@router.delete("/{entity_id}")
+def delete_entity(entity_id: str):
+    query = "MATCH (e:Entity {id: $id}) DETACH DELETE e"
+    try:
+        with driver.session() as session:
+            session.run(query, id=entity_id)
+        return {"message": "Entidade apagada!"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.delete("")
+def delete_all_entities():
+    query = "MATCH (e:Entity) DETACH DELETE e"
+    try:
+        with driver.session() as session:
+            session.run(query)
+        return {"message": "Todas as entidades foram apagadas!"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@router.patch("/{entity_id}/position")
+def update_entity_position(entity_id: str, pos_update: PositionUpdateModel):
+    """Atualiza as coordenadas X, Y, Z de uma entidade específica."""
+    query = """
+    MATCH (e:Entity {id: $id})
+    SET e.posX = $posX, e.posY = $posY, e.posZ = $posZ
+    RETURN e
+    """
+    try:
+        with driver.session() as session:
+            result = session.run(
+                query, 
+                id=entity_id, 
+                posX=pos_update.position[0], 
+                posY=pos_update.position[1], 
+                posZ=pos_update.position[2]
+            )
+            # Solução segura: Se não encontrar no banco, avisa no log interno mas não crasha a API
+            records = list(result)
+            if not records:
+                print(f"Aviso: Entidade {entity_id} movida na tela, mas ainda não existe no Banco.")
+                
+        return {"message": "Posição atualizada com sucesso!"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+
+@router.patch("/{entity_id}/rotate")
+def update_entity_rotation(entity_id: str, rot_update: RotationUpdateModel):
+    query = "MATCH (e:Entity {id: $id}) SET e.rotation = $rotation RETURN e"
+    try:
+        with driver.session() as session:
+            result = session.run(query, id=entity_id, rotation=rot_update.rotation)
+            
+            records = list(result)
+            if not records:
+                print(f"Aviso: Tentativa de rotacionar entidade {entity_id} não encontrada.")
+                
+        return {"message": "Rotação atualizada!"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@router.post("/wolf")
+def create_wolf(wolf: FarmerModel):
+    # O Lobo usa a mesma estrutura biológica (FarmerModel) pois tem HP, Fome e Estado
+    return execute_agent_creation(wolf, 'wolf')

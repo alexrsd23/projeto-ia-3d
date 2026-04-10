@@ -1,7 +1,8 @@
 export interface Entity {
   id: string;
-  type: 'house' | 'character' | 'cactus' | 'farmer' | 'woodcutter' | 'builder' | 'tree' | 'stump' | 'log' | 'stone' | 'fence';
+  type: 'house' | 'character' | 'cactus' | 'farmer' | 'woodcutter' | 'builder' | 'tree' | 'stump' | 'log' | 'stone' | 'fence' | 'loot' | 'wolf' | 'damaged_fence' | 'gate';
   position: [number, number, number];
+  rotation?: number;
   name?: string;
   birthdate?: string;
   health?: number; 
@@ -9,8 +10,6 @@ export interface Entity {
   inventoryJSON?: string;
   memoryJSON?: string;
   state?: string;
-  
-  // === ATRIBUTOS GENÉTICOS E SOCIAIS (DNA) ===
   color?: string;       // Hexadecimal da cor (ex: "#4169E1")
   sex?: 'M' | 'F';      // Sexo biológico
   profession?: string;  // Título da profissão
