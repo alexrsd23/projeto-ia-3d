@@ -35,7 +35,10 @@ def process_survival_tick(survival_brain, session):
         e.name AS name,
         e.inventoryJSON AS inventoryJSON,
         e.memoryJSON AS memoryJSON,
-        e.state AS state
+        e.state AS state,
+        coalesce(e.married, false) AS married,
+        coalesce(e.age, 0) AS age,
+        coalesce(e.sex, 'M') AS sex
     """
 
     # 2. Busca de tudo que NÃO é agente sensível
@@ -111,26 +114,32 @@ def process_survival_tick(survival_brain, session):
         }
         
         action_type_for_bio = "MOVE" if action == "MOVE" else ("ACTION" if action in ["HARVEST", "PLANT", "PLOW"] else "IDLE")
-        bio_result = biology.process_tick(agent, action_type_for_bio)
         
-        new_hunger = bio_result['hunger']
-        new_hp = bio_result['hp']
+        # === DESGASTE BIOLÓGICO E VELHICE ===
+        bio_status = biology.process_tick(agent, action_type_for_bio)
+        new_hunger = bio_status['hunger']
+        new_hp = bio_status['hp']
+        agent['age'] = bio_status['age'] # O agente ficou 1 tick mais velho
         
         # === A NOVA LÓGICA DA MORTE (Metamorfose para Loot) ===
-        if bio_result['is_dead']:
-            events.append({"id": f"evt-{random.randint(1000,9999)}", "level": "ERROR", "message": f"☠️ {agent['name']} morreu de fome e virou um espólio!", "timestamp": current_time})
+        if bio_status['is_dead']:
+            # Log emocional para o Terminal
+            if bio_status.get('death_reason') == "OLD_AGE":
+                events.append({"id": str(uuid.uuid4()), "level": "WARNING", "message": f"⚰️ FALECIMENTO: {agent_name} faleceu pacificamente de velhice aos {agent['age']} ciclos. Uma vida completa.", "timestamp": current_time})
+            else:
+                events.append({"id": str(uuid.uuid4()), "level": "ERROR", "message": f"☠️ MORTE: {agent_name} sucumbiu à fome...", "timestamp": current_time})
             
-            # Adiciona o MORTO na lista de atualizações, mas transforma o tipo dele em "loot"
             updates_agents.append({
                 "id": agent['id'], 
-                "type": "loot",  # <-- O PULO DO GATO: Vira um saco de couro!
+                "type": "loot",  
                 "x": new_x, "z": new_z, 
                 "hp": 0.0, "hunger": 0.0,
-                "inv": survival_brain.inventory_sys.to_string(inv), # A herança fica guardada aqui!
+                "age": agent['age'], # <--- Guardamos a idade em que faleceu
+                "inv": survival_brain.inventory_sys.to_string(inv), 
                 "mem": json.dumps(safe_memory),
                 "state": "DEAD"
             })
-            continue # Pula as ações físicas (o morto não pode colher nem plantar)
+            continue # Pula as ações físicas
 
         # 3. Execução das Ações Físicas (Logs de Sucesso/Morte)
         if action == "EAT_INVENTORY":
@@ -166,6 +175,135 @@ def process_survival_tick(survival_brain, session):
                 # A cerca íntegra morre e vira uma 'damaged_fence' imediatamente
                 updates_agents.append({"id": target_id, "type": "damaged_fence", "x": target_entity['x'], "z": target_entity['z'], "hp": 0, "hunger": 0, "inv": "{}", "mem": "{}", "state": "IDLE"})
                 world_entities = [e for e in world_entities if e['id'] != target_id]
+                
+        # === O MOTOR DE CASAMENTO (SOCIOLOGIA & GENÉTICA) ===
+        elif action == "PROPOSE_MARRIAGE":
+            agent_a = agent['id']
+            agent_b = target_id
+            
+            if agent_a < agent_b: 
+                try:
+                    # 1. VALIDAÇÃO DE CONSANGUINIDADE (TABU GENÉTICO)
+                    query_incest = """
+                    MATCH (a:Entity {id: $idA}), (b:Entity {id: $idB})
+                    // Padrão 1 e 2: Ascendentes ou Descendentes diretos (infinito)
+                    OPTIONAL MATCH p1=(a)-[:PARENT_OF*1..]->(b)
+                    OPTIONAL MATCH p2=(b)-[:PARENT_OF*1..]->(a)
+                    // Padrão 3: Irmãos (partilham um parente que aponta para os dois)
+                    OPTIONAL MATCH p3=(a)<-[:PARENT_OF]-()-[:PARENT_OF]->(b)
+                    // Padrão 4 e 5: Tio(a) e Sobrinho(a)
+                    OPTIONAL MATCH p4=(a)<-[:PARENT_OF]-()-[:PARENT_OF]-()-[:PARENT_OF]->(b)
+                    OPTIONAL MATCH p5=(b)<-[:PARENT_OF]-()-[:PARENT_OF]-()-[:PARENT_OF]->(a)
+                    // Se qualquer um dos caminhos existir, é incesto
+                    RETURN (p1 IS NOT NULL OR p2 IS NOT NULL OR p3 IS NOT NULL OR p4 IS NOT NULL OR p5 IS NOT NULL) AS is_incest
+                    """
+                    incest_check = session.run(query_incest, idA=agent_a, idB=agent_b).single()
+                    
+                    if incest_check and incest_check["is_incest"]:
+                        # A Natureza interveio!
+                        events.append({"id": str(uuid.uuid4()), "level": "ERROR", "message": f"🧬 TABU GENÉTICO: A biologia impediu o flerte! {agent_name} e o alvo são parentes próximos.", "timestamp": current_time})
+                        
+                        # Grava na memória dos DOIS para eles nunca mais tentarem o absurdo
+                        survival_brain.memory_sys._ensure_agent(agent_a)
+                        survival_brain.memory_sys._ensure_agent(agent_b)
+                        survival_brain.memory_sys.agent_memories[agent_a]['rejections'].append(agent_b)
+                        survival_brain.memory_sys.agent_memories[agent_b]['rejections'].append(agent_a)
+                        continue # Aborta a ação deste tick
+                    
+                    # 2. SE A GENÉTICA PERMITIR, EXECUTA O CASAMENTO:
+                    query_marry = """
+                    MATCH (a:Entity {id: $idA}), (b:Entity {id: $idB})
+                    WHERE coalesce(a.married, false) = false AND coalesce(b.married, false) = false AND a.type = b.type
+                    MERGE (a)-[r:MARRIED_TO]-(b)
+                    SET a.married = true, b.married = true
+                    RETURN a.name AS nameA, b.name AS nameB
+                    """
+                    result = session.run(query_marry, idA=agent_a, idB=agent_b).data()
+                    
+                    if result:
+                        name_a = result[0]['nameA']
+                        name_b = result[0]['nameB']
+                        events.append({"id": str(uuid.uuid4()), "level": "SUCCESS", "message": f"💍 CASAMENTO: {name_a} e {name_b} casaram-se no meio da simulação!", "timestamp": current_time})
+                        for a in agents:
+                            if a['id'] == agent_a or a['id'] == agent_b:
+                                a['married'] = True
+                                
+                except Exception as e:
+                    events.append({"id": str(uuid.uuid4()), "level": "WARNING", "message": f"💔 Erro no banco durante o casamento: {str(e)}", "timestamp": current_time})
+        
+        # === A FASE 3: O MILAGRE DA VIDA E A ÁRVORE GENEALÓGICA ===
+        elif action == "PROCREATE":
+            agent_a_id = agent['id']
+            agent_b_id = target_id
+            
+            if agent_a_id < agent_b_id: # Garante que só o parceiro A paga a conta e gera o filho
+                partner = next((a for a in agents if a['id'] == agent_b_id), None)
+                if partner:
+                    p_inv = survival_brain.inventory_sys.parse(partner.get('inventoryJSON', "{}"))
+                    a_type = agent['type']
+                    
+                    # 1. VALIDAÇÃO DE PAGAMENTO: Ambos precisam ter o recurso para pagar a sua metade!
+                    both_can_afford = False
+                    if a_type == 'farmer' and inv.get('potatoes', 0) >= 2 and p_inv.get('potatoes', 0) >= 2:
+                        inv['potatoes'] -= 2
+                        p_inv['potatoes'] -= 2
+                        both_can_afford = True
+                    elif a_type == 'woodcutter' and inv.get('logs', 0) >= 5 and p_inv.get('logs', 0) >= 5:
+                        inv['logs'] -= 5
+                        p_inv['logs'] -= 5
+                        both_can_afford = True
+                    elif a_type == 'builder' and inv.get('stones', 0) >= 5 and p_inv.get('stones', 0) >= 5:
+                        inv['stones'] -= 5
+                        p_inv['stones'] -= 5
+                        both_can_afford = True
+                        
+                    if both_can_afford:
+                        # 2. O CUSTO BIOLÓGICO: Ter um filho consome 25% da barra de fome de ambos!
+                        new_hunger = max(0, new_hunger - 25.0)
+                        partner['hunger'] = max(0, float(partner.get('hunger', 100)) - 25.0)
+                        
+                        # Atualiza o inventário do parceiro na RAM e no objeto de gravação
+                        partner['inventoryJSON'] = survival_brain.inventory_sys.to_string(p_inv)
+                        for up in updates_agents:
+                            if up['id'] == agent_b_id:
+                                up['hunger'] = partner['hunger']
+                                up['inv'] = partner['inventoryJSON']
+                                
+                        # 3. MISTURA DE DNA (MENDEL 2.0)
+                        child_dna = biology.mix_dna(agent, partner)
+                        child_id = str(uuid.uuid4())
+                        child_name = f"{child_dna['profession']} {child_id[:2].upper()}"
+                        
+                        try:
+                            # 4. CRIAÇÃO NO NEO4J (O Alicerce da Árvore Genealógica!)
+                            query_birth = """
+                            MATCH (mom:Entity {id: $mom_id}), (dad:Entity {id: $dad_id})
+                            CREATE (child:Entity {
+                                id: $c_id, type: $c_type, posX: $c_x, posY: 0.5, posZ: $c_z,
+                                health: 100.0, hunger: 100.0, name: $c_name,
+                                color: $color, sex: $sex, profession: $prof,
+                                trustLevel: $trust, lieLevel: $lie, married: false, age: 0,
+                                inventoryJSON: "{}", memoryJSON: "{}", state: "IDLE"
+                            })
+                            // Cria as setas de parentesco para a nossa futura UI ler!
+                            CREATE (mom)-[:PARENT_OF]->(child)
+                            CREATE (dad)-[:PARENT_OF]->(child)
+                            CREATE (child)-[:CHILD_OF]->(mom)
+                            CREATE (child)-[:CHILD_OF]->(dad)
+                            RETURN child.id
+                            """
+                            session.run(query_birth, 
+                                mom_id=agent_a_id, dad_id=agent_b_id,
+                                c_id=child_id, c_type=agent['type'], 
+                                c_x=new_x, c_z=new_z, c_name=child_name,
+                                color=child_dna['color'], sex=child_dna['sex'], prof=child_dna['profession'],
+                                trust=child_dna['trustLevel'], lie=child_dna['lieLevel']
+                            )
+                            events.append({"id": str(uuid.uuid4()), "level": "SUCCESS", "message": f"👶 MILAGRE DA VIDA: {agent_name} e {partner.get('name')} tiveram um filho! Bem-vindo(a) {child_name}!", "timestamp": current_time})
+                        except Exception as e:
+                            events.append({"id": str(uuid.uuid4()), "level": "ERROR", "message": f"Erro no parto: {str(e)}", "timestamp": current_time})
+                    else:
+                        events.append({"id": str(uuid.uuid4()), "level": "WARNING", "message": f"🚫 Tentativa de gravidez falhou: {agent_name} ou parceiro não têm os recursos materiais exigidos!", "timestamp": current_time})
 
         elif action == "HARVEST":
             tile = tiles_map.get(target_id)
@@ -345,12 +483,13 @@ def process_survival_tick(survival_brain, session):
                         "timestamp": current_time
                     })
 
-        # Adiciona a memória e estado ao pacote de atualização (PARA OS VIVOS)
+       # Adiciona a memória e estado ao pacote de atualização (PARA OS VIVOS)
         updates_agents.append({
             "id": agent['id'],
             "type": agent['type'], # <-- Mantém a profissão original intacta!
             "x": new_x, "z": new_z, 
             "hp": new_hp, "hunger": new_hunger,
+            "age": agent.get('age', 0), # <--- GRAVAR A IDADE AQUI PARA OS VIVOS
             "inv": survival_brain.inventory_sys.to_string(inv),
             "mem": json.dumps(safe_memory),
             "state": state_msg
@@ -405,6 +544,7 @@ def process_survival_tick(survival_brain, session):
             e.posZ = up.z, 
             e.health = up.hp, 
             e.hunger = up.hunger, 
+            e.age = up.age,        // <--- A NOVA IDADE A SER SALVA NO BANCO!
             e.inventoryJSON = up.inv, 
             e.memoryJSON = up.mem, 
             e.state = up.state
@@ -416,6 +556,39 @@ def process_survival_tick(survival_brain, session):
         MATCH (t:Tile {id: up.id})
         SET t.cropsJSON = up.cropsJSON
         """, updates=updates_tiles)
+        
+    # =====================================================================
+    # === FASE 2: O LUTO BIOLÓGICO E A VIUVEZ (SOCIOLOGIA) ===
+    # =====================================================================
+    # Filtra os IDs de quem acabou de morrer neste exato tick
+    dead_ids = [up['id'] for up in updates_agents if up.get('hp', 100) <= 0]
+    
+    if dead_ids:
+        # A mágica do Grafo: Transforma o casamento ativo num luto histórico
+        widows_query = """
+        UNWIND $dead_ids AS dead_id
+        MATCH (dead:Entity {id: dead_id})-[r:MARRIED_TO]-(widow:Entity)
+        
+        // 1. Cria o laço histórico para a Árvore Genealógica não esquecer
+        CREATE (widow)-[:WIDOWED_FROM]->(dead)
+        
+        // 2. Destrói o casamento ativo e atualiza o estado civil
+        DELETE r
+        SET widow.married = false
+        
+        RETURN widow.name AS widow_name, dead.name AS dead_name
+        """
+        widow_results = session.run(widows_query, dead_ids=dead_ids)
+        
+        # 3. Dispara o evento de luto para o Terminal de Auditoria Biológica
+        for record in widow_results:
+            events.append({
+                "id": str(uuid.uuid4()), 
+                "level": "ERROR", 
+                "message": f"🖤 LUTO: {record['widow_name']} chora a perda do seu parceiro(a), {record['dead_name']}. O estado civil voltou para solteiro.", 
+                "timestamp": current_tick # Usando o tick atual como referência de tempo
+            })
+    # =====================================================================
 
     return {
         "message": "Tick Biológico processado",

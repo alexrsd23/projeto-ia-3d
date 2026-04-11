@@ -15,6 +15,8 @@ class EntityModel(BaseModel):
     profession: Optional[str] = None
     trustLevel: Optional[float] = None
     lieLevel: Optional[float] = None
+    married: Optional[bool] = False
+    age: Optional[int] = 0
 
 class EntityUpdateModel(BaseModel):
     name: str

@@ -12,7 +12,8 @@ def create_entity(entity: EntityModel):
         id: $id, type: $type, posX: $posX, posY: $posY, posZ: $posZ, rotation: $rotation,
         health: $health, hunger: $hunger, name: $name,
         color: $color, sex: $sex, profession: $profession,
-        trustLevel: $trustLevel, lieLevel: $lieLevel
+        trustLevel: $trustLevel, lieLevel: $lieLevel,
+        married: $married, age: $age
     })
     RETURN e
     """
@@ -21,10 +22,12 @@ def create_entity(entity: EntityModel):
             session.run(
                 query, id=entity.id, type=entity.type, 
                 posX=entity.position[0], posY=entity.position[1], posZ=entity.position[2], 
-                rotation=entity.rotation,  # <--- A CORREÇÃO DE OURO AQUI
+                rotation=entity.rotation,
                 health=entity.health, hunger=entity.hunger, name=entity.name,
                 color=entity.color, sex=entity.sex, profession=entity.profession,
-                trustLevel=entity.trustLevel, lieLevel=entity.lieLevel
+                trustLevel=entity.trustLevel, lieLevel=entity.lieLevel,
+                married=entity.married,
+                age=agent.age
             )
         return {"message": f"{entity.type} criado com sucesso no Neo4j!"}
     except Exception as e:
@@ -61,7 +64,8 @@ def create_agent_query(agent_type: str):
         health: $health, hunger: $hunger, name: $name,
         color: $color, sex: $sex, profession: $profession,
         trustLevel: $trustLevel, lieLevel: $lieLevel,
-        inventoryJSON: $inv, memoryJSON: $mem, state: $state
+        inventoryJSON: $inv, memoryJSON: $mem, state: $state,
+        married: $married, age: $age
     }})
     RETURN e
     """
@@ -76,7 +80,8 @@ def execute_agent_creation(agent: FarmerModel, agent_type: str):
                 health=agent.health, hunger=agent.hunger, name=agent.name,
                 color=agent.color, sex=agent.sex, profession=agent.profession,
                 trustLevel=agent.trustLevel, lieLevel=agent.lieLevel,
-                inv=agent.inventoryJSON, mem=agent.memoryJSON, state=agent.state
+                inv=agent.inventoryJSON, mem=agent.memoryJSON, state=agent.state,
+                married=agent.married, age=agent.age
             )
         return {"message": f"{agent_type} criado com sucesso!"}
     except Exception as e:

@@ -107,8 +107,10 @@ class PerceptionSystem:
             if dist <= self.vision_radius:
                 seen_data["other_agents"].append({
                     "id": peer['id'], 
-                    "type": peer['type'], # Crucial: Saber a profissão do outro!
+                    "type": peer['type'], 
                     "name": peer.get('name', 'Desconhecido'),
+                    "sex": peer.get('sex', 'M'),           # <--- ADICIONAR ISTO
+                    "married": peer.get('married', False), # <--- ADICIONAR ISTO
                     "x": px, "z": pz, 
                     "dist": dist
                 })

@@ -65,6 +65,59 @@ class SurvivalController:
                         return ("MOVE", new_x, new_z, None, f"Fugindo em pânico! Lobo detectado a {nearest_wolf['dist']:.1f} blocos!")
                     else:
                         return self._wander(agent_pos, blocked_coords, "Curralado! Tentando achar saída para fugir do predador!")
+                    
+       # === PRIORIDADE 2: INSTINTO SOCIAL E REPRODUTIVO ===
+        # Só pensa em sociologia se não estiver esfomeado (fome >= 30) e se for civil
+        if agent_type != 'wolf' and hunger >= 30.0:
+            is_married = agent.get('married', False)
+            
+            # --- 1. SE SOLTEIRO: TENTA CASAR ---
+            if not is_married:
+                # Carrega a lista de parentes/rejeitados da memória
+                my_rejections = self.memory_sys.agent_memories.get(agent_id, {}).get('rejections', [])
+                
+                potential_partners = [
+                    p for p in radar_data.get('other_agents', []) 
+                    if p['type'] == agent_type and p.get('married', False) == False and p['id'] not in my_rejections
+                ]
+                
+                if potential_partners:
+                    partner = potential_partners[0] # Pega o mais próximo
+                    if partner['dist'] <= 3.0:
+                        self.agent_states[agent_id] = "PROPOSING"
+                        return ("PROPOSE_MARRIAGE", partner['x'], partner['z'], partner['id'], f"Pedindo {partner['name']} em casamento!")
+                    else:
+                        self.agent_states[agent_id] = "COURTING"
+                        return self._move_towards(agent_pos, (partner['x'], partner['z']), blocked_coords, f"Indo conhecer {partner['name']}.")
+            
+            # --- 2. SE CASADO: TENTA PROCRIAR (A NOVA FASE 2) ---
+            else:
+                # O instinto reprodutivo exige fartura (Fome >= 70) E RECURSOS MATERIAIS!
+                can_afford_child = False
+                if agent_type == 'farmer' and inv.get('potatoes', 0) >= 2:
+                    can_afford_child = True
+                elif agent_type == 'woodcutter' and inv.get('logs', 0) >= 5:
+                    can_afford_child = True
+                elif agent_type == 'builder' and inv.get('stones', 0) >= 5:
+                    can_afford_child = True
+
+                if hunger >= 70.0 and can_afford_child:
+                    my_sex = agent.get('sex', 'M')
+                    target_sex = 'F' if my_sex == 'M' else 'M'
+                    
+                    spouses = [
+                        p for p in radar_data.get('other_agents', [])
+                        if p['type'] == agent_type and p.get('married', False) == True and p.get('sex') == target_sex
+                    ]
+                    
+                    if spouses:
+                        spouse = spouses[0] 
+                        if spouse['dist'] <= 3.0:
+                            self.agent_states[agent_id] = "PROCREATING"
+                            return ("PROCREATE", spouse['x'], spouse['z'], spouse['id'], f"Momento romântico com {spouse['name']}...")
+                        else:
+                            self.agent_states[agent_id] = "COURTING"
+                            return self._move_towards(agent_pos, (spouse['x'], spouse['z']), blocked_coords, f"Indo encontrar {spouse['name']} para ter um filho.")
         
         # PRIORIDADE 0: Auto-Regulação Preventiva
         if is_hungry and self.inventory_sys.has_food(inv):
@@ -78,7 +131,7 @@ class SurvivalController:
             if agent_type == 'farmer':
                 if radar_data.get('food_ready'):
                     target = radar_data['food_ready'][0] 
-                    if target['dist'] <= 1.5:
+                    if target['dist'] <= 3:
                         return ("HARVEST", target['x'], target['z'], target['tile_id'], "Colhendo batata madura.")
                     return self._move_towards(agent_pos, (target['x'], target['z']), blocked_coords, "Indo colher comida.")
             else:
@@ -86,7 +139,7 @@ class SurvivalController:
                 farmers = [p for p in radar_data.get('other_agents', []) if p['type'] == 'farmer']
                 if farmers:
                     target_farmer = farmers[0]
-                    if target_farmer['dist'] <= 1.5:
+                    if target_farmer['dist'] <= 3:
                         return ("TRADE", target_farmer['x'], target_farmer['z'], target_farmer['id'], f"Iniciando negociação de comida com {target_farmer['name']}.")
                     return self._move_towards(agent_pos, (target_farmer['x'], target_farmer['z']), blocked_coords, f"Perseguindo o fazendeiro {target_farmer['name']} para comprar comida.")
                 else:
@@ -105,7 +158,7 @@ class SurvivalController:
                 if radar_data.get('logs_on_ground'):
                     self.agent_states[agent_id] = "COLLECTING"
                     target = radar_data['logs_on_ground'][0]
-                    if target['dist'] <= 1.5:
+                    if target['dist'] <= 3:
                         return ("COLLECT_LOG", target['x'], target['z'], target['id'], "Apanhando tronco do chão para a mochila.")
                     # === CORREÇÃO: Adicionado blocked_coords ===
                     return self._move_towards(agent_pos, (target['x'], target['z']), blocked_coords, "Indo recolher um tronco caído.")
@@ -114,7 +167,7 @@ class SurvivalController:
                 self.agent_states[agent_id] = "CHOPPING"
                 if radar_data.get('trees'):
                     target = radar_data['trees'][0]
-                    if target['dist'] <= 1.5:
+                    if target['dist'] <= 3:
                         return ("CHOP_TREE", target['x'], target['z'], target['id'], "Derrubando árvore para extrair madeira.")
                     # === CORREÇÃO: Adicionado blocked_coords ===
                     return self._move_towards(agent_pos, (target['x'], target['z']), blocked_coords, "Indo até uma árvore para cortar.")
@@ -130,7 +183,7 @@ class SurvivalController:
                     woodcutters = [p for p in radar_data.get('other_agents', []) if p['type'] == 'woodcutter']
                     if woodcutters:
                         target_wc = woodcutters[0]
-                        if target_wc['dist'] <= 1.5:
+                        if target_wc['dist'] <= 3:
                             return ("TRADE_LOGS", target_wc['x'], target_wc['z'], target_wc['id'], f"Negociando compra de madeira com {target_wc['name']}.")
                         return self._move_towards(agent_pos, (target_wc['x'], target_wc['z']), blocked_coords, f"Indo comprar madeira de {target_wc['name']}.")
 
@@ -141,7 +194,7 @@ class SurvivalController:
                 if inv.get('fences', 0) > 0 and radar_data.get('broken_fences'):
                     self.agent_states[agent_id] = "BUILDING"
                     target = radar_data['broken_fences'][0]
-                    if target['dist'] <= 1.5:
+                    if target['dist'] <= 3:
                         return ("REPAIR_FENCE", target['x'], target['z'], target['id'], "Reparando estrutura danificada.")
                     return self._move_towards(agent_pos, (target['x'], target['z']), blocked_coords, "Deslocando para reparo.")
                 
@@ -151,21 +204,21 @@ class SurvivalController:
                 self.agent_states[agent_id] = "FARMER"
                 if radar_data.get('empty_farms'):
                     target = random.choice(radar_data['empty_farms'][:3])
-                    if target['dist'] <= 1.5:
+                    if target['dist'] <= 3:
                         return ("PLANT", target['x'], target['z'], target['id'], "Plantando sementes.")
                     return self._move_towards(agent_pos, (target['x'], target['z']), blocked_coords, "Indo replantar em terra livre.")
                 
                 farm_mem = self.memory_sys.get_best_farm_location(agent_id, agent_pos)
                 if farm_mem:
                     dist = math.hypot(farm_mem[0] - agent_pos[0], farm_mem[1] - agent_pos[1])
-                    if dist <= 1.5:
+                    if dist <= 3:
                         self.memory_sys.invalidate_farm_memory(agent_id, farm_mem)
                         return self._wander(agent_pos, blocked_coords, "Conflito de espaço: Terra lotada. Memória apagada.")
                     return self._move_towards(agent_pos, farm_mem, blocked_coords, "Deslocando para terra previamente arada.")
                     
                 if radar_data.get('arable_land'):
                     target = random.choice(radar_data['arable_land'][:3])
-                    if target['dist'] <= 1.5:
+                    if target['dist'] <= 3:
                         return ("PLOW", target['x'], target['z'], target['id'], "Arando solo virgem.")
                     return self._move_towards(agent_pos, (target['x'], target['z']), blocked_coords, "Buscando terreno virgem para arar.")
                 
@@ -175,19 +228,19 @@ class SurvivalController:
                 preys = [p for p in radar_data.get('other_agents', []) if p['type'] in ['farmer', 'woodcutter', 'builder']]
                 if preys:
                     target_prey = preys[0]
-                    if target_prey['dist'] <= 1.5:
+                    if target_prey['dist'] <= 3:
                         return ("ATTACK_AGENT", target_prey['x'], target_prey['z'], target_prey['id'], f"Atacando {target_prey['name']} (-20 HP)!")
                     
                     if radar_data.get('fences'):
                         target_fence = radar_data['fences'][0]
-                        if target_fence['dist'] <= 1.5:
+                        if target_fence['dist'] <= 3:
                             return ("ATTACK_FENCE", target_fence['x'], target_fence['z'], target_fence['id'], "Destruindo barreira para alcançar a presa!")
 
                     return self._move_towards(agent_pos, (target_prey['x'], target_prey['z']), blocked_coords, f"Perseguindo {target_prey['name']}!")
                 
                 if radar_data.get('fences'):
                     target_fence = radar_data['fences'][0]
-                    if target_fence['dist'] <= 1.5:
+                    if target_fence['dist'] <= 3:
                         return ("ATTACK_FENCE", target_fence['x'], target_fence['z'], target_fence['id'], "Destruindo uma estrutura por instinto.")
                     return self._move_towards(agent_pos, (target_fence['x'], target_fence['z']), blocked_coords, "Indo investigar uma estrutura para destruir.")
 
@@ -196,7 +249,7 @@ class SurvivalController:
         # PRIORIDADE 3: Colecionador
         if needs_stock and radar_data.get('food_ready'):
             target = radar_data['food_ready'][0] 
-            if target['dist'] <= 1.5:
+            if target['dist'] <= 3:
                 self.agent_states[agent_id] = "STOCKPILING"
                 return ("HARVEST", target['x'], target['z'], target['tile_id'], "Estocagem preventiva.")
 

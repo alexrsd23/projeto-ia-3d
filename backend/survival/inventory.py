@@ -53,6 +53,13 @@ class InventorySystem:
             inv_dict['potatoes'] -= 1
             return True
         return False
+    
+   
+    def consume_seed(self, inv_dict):
+        if inv_dict.get('seeds', 0) > 0:
+            inv_dict['seeds'] -= 1
+            return True
+        return False
 
     def needs_replenish(self, inv_dict):
         """Verifica se algum recurso básico está abaixo do limite."""

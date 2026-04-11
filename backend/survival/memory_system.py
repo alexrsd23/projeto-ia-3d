@@ -15,7 +15,8 @@ class SpatialMemory:
             self.agent_memories[agent_id] = {
                 'food': {},      # Dicionário de coordenadas com batatas (prontas ou a crescer)
                 'farms': {},     # Dicionário de terras aráveis ou fazendas vazias
-                'hazards': {}    # Locais a evitar (cactos, etc.)
+                'hazards': {},    # Locais a evitar (cactos, etc.)
+                'rejections': [] # NOVO: Lista de corações partidos (Tabus Genéticos)
             }
 
     def update_from_perception(self, agent_id, radar_data, current_tick):
