@@ -136,14 +136,22 @@ class SurvivalController:
                     return self._move_towards(agent_pos, (target['x'], target['z']), blocked_coords, "Indo colher comida.")
             else:
                 self.agent_states[agent_id] = "SEEK_TRADE"
-                farmers = [p for p in radar_data.get('other_agents', []) if p['type'] == 'farmer']
+                
+                # Carrega os vendedores boicotados (se existirem)
+                my_boycotts = self.memory_sys.agent_memories.get(agent_id, {}).get('boycotts', {})
+                # O "Esquecimento Comercial": Se já passaram 50 ticks, ele dá uma segunda oportunidade
+                active_boycotts = [f_id for f_id, tick_banned in my_boycotts.items() if current_tick - tick_banned < 50]
+                
+                # Filtra apenas os fazendeiros que NÃO estão na lista de boicote
+                farmers = [p for p in radar_data.get('other_agents', []) if p['type'] == 'farmer' and p['id'] not in active_boycotts]
+                
                 if farmers:
                     target_farmer = farmers[0]
                     if target_farmer['dist'] <= 3:
                         return ("TRADE", target_farmer['x'], target_farmer['z'], target_farmer['id'], f"Iniciando negociação de comida com {target_farmer['name']}.")
                     return self._move_towards(agent_pos, (target_farmer['x'], target_farmer['z']), blocked_coords, f"Perseguindo o fazendeiro {target_farmer['name']} para comprar comida.")
                 else:
-                    return self._wander(agent_pos, blocked_coords, "Com fome, mas não vejo nenhum fazendeiro para comprar batatas. Explorando.")
+                    return self._wander(agent_pos, blocked_coords, "Comida está muito cara ou não há fazendeiros justos por perto. Explorando alternativas.")
 
         # PRIORIDADE 2: TRABALHO
         if is_comfortable:
@@ -154,23 +162,28 @@ class SurvivalController:
 
             # 2. Execução da Profissão Específica
             if agent_type == 'woodcutter':
-                # ETAPA 1: O chão está sujo de troncos? Recolhe primeiro!
+                # ETAPA 1: Limite do inventário! Se estiver cheio, nem tenta recolher nem cortar.
+                if not self.inventory_sys.can_collect_log(inv):
+                    self.agent_states[agent_id] = "FULL_INVENTORY"
+                    return self._wander(agent_pos, blocked_coords, "Mochila de madeira cheia! Vagando até encontrar um comprador.")
+
+                # ETAPA 2: O chão está sujo de troncos? Recolhe!
                 if radar_data.get('logs_on_ground'):
                     self.agent_states[agent_id] = "COLLECTING"
                     target = radar_data['logs_on_ground'][0]
                     if target['dist'] <= 3:
                         return ("COLLECT_LOG", target['x'], target['z'], target['id'], "Apanhando tronco do chão para a mochila.")
-                    # === CORREÇÃO: Adicionado blocked_coords ===
                     return self._move_towards(agent_pos, (target['x'], target['z']), blocked_coords, "Indo recolher um tronco caído.")
 
-                # ETAPA 2: O chão está limpo? Então vamos derrubar mais uma árvore!
+                # ETAPA 3: O chão está limpo e tem espaço? Então vamos derrubar mais uma árvore!
                 self.agent_states[agent_id] = "CHOPPING"
                 if radar_data.get('trees'):
                     target = radar_data['trees'][0]
                     if target['dist'] <= 3:
                         return ("CHOP_TREE", target['x'], target['z'], target['id'], "Derrubando árvore para extrair madeira.")
-                    # === CORREÇÃO: Adicionado blocked_coords ===
                     return self._move_towards(agent_pos, (target['x'], target['z']), blocked_coords, "Indo até uma árvore para cortar.")
+
+                return self._wander(agent_pos, blocked_coords, "Procurando florestas para cortar.")
 
                 # ETAPA 3: Limite do inventário!
                 if not self.inventory_sys.can_collect_log(inv):
@@ -180,12 +193,24 @@ class SurvivalController:
             elif agent_type == 'builder':
                 if inv.get('logs', 0) < 2 and self.inventory_sys.can_carry_fence(inv):
                     self.agent_states[agent_id] = "SEEK_LOGS"
-                    woodcutters = [p for p in radar_data.get('other_agents', []) if p['type'] == 'woodcutter']
+                    
+                    # Carrega os vendedores boicotados (se existirem)
+                    my_boycotts = self.memory_sys.agent_memories.get(agent_id, {}).get('boycotts', {})
+                    
+                    # O "Esquecimento Comercial": Se já passaram 50 ticks (algum tempo de jogo), ele dá uma segunda oportunidade
+                    active_boycotts = [wc_id for wc_id, tick_banned in my_boycotts.items() if current_tick - tick_banned < 50]
+                    
+                    # Filtra os lenhadores que NÃO estão boicotados
+                    woodcutters = [p for p in radar_data.get('other_agents', []) if p['type'] == 'woodcutter' and p['id'] not in active_boycotts]
+                    
                     if woodcutters:
                         target_wc = woodcutters[0]
                         if target_wc['dist'] <= 3:
                             return ("TRADE_LOGS", target_wc['x'], target_wc['z'], target_wc['id'], f"Negociando compra de madeira com {target_wc['name']}.")
                         return self._move_towards(agent_pos, (target_wc['x'], target_wc['z']), blocked_coords, f"Indo comprar madeira de {target_wc['name']}.")
+                    else:
+                        # Se todos estiverem boicotados ou não houver nenhum
+                        return self._wander(agent_pos, blocked_coords, "Madeira está muito cara ou em falta. Esperando o mercado acalmar.")
 
                 if inv.get('logs', 0) >= 2 and self.inventory_sys.can_carry_fence(inv):
                     self.agent_states[agent_id] = "CRAFTING"

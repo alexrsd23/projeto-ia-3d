@@ -395,15 +395,40 @@ def process_survival_tick(survival_brain, session):
             target_agent = next((a for a in agents if a['id'] == target_id), None)
             if target_agent:
                 seller_inv = survival_brain.inventory_sys.parse(target_agent.get('inventoryJSON', "{}"))
-                # Negociação de preço para troncos
-                deal = economy.negotiate_deal(agent, target_agent, "logs", 1)
+                
+                buyer_data = {
+                    "inventoryJSON": inv,
+                    "hunger": agent.get('hunger', 100),
+                    "lieLevel": agent.get('lieLevel', 0)
+                }
+                seller_data = {
+                    "inventoryJSON": seller_inv,
+                    "hunger": target_agent.get('hunger', 100),
+                    "lieLevel": target_agent.get('lieLevel', 0)
+                }
+                
+                deal = economy.negotiate_deal(buyer_data, seller_data, "logs", 1)
                 
                 if deal["success"]:
                     success, b_inv, s_inv, msg = economy.execute_trade(inv, seller_inv, "logs", deal["price"], 1)
                     if success:
                         inv = b_inv
                         target_agent['inventoryJSON'] = survival_brain.inventory_sys.to_string(s_inv)
-                        events.append({"id": str(uuid.uuid4()), "level": "SUCCESS", "message": f"🤝 {agent_name} comprou 1 Tronco de {target_agent['name']} por {deal['price']} Plobs.", "timestamp": current_time})
+                        for up in updates_agents:
+                            if up['id'] == target_id:
+                                up['inv'] = target_agent['inventoryJSON']
+                        
+                        events.append({"id": str(uuid.uuid4()), "level": "SUCCESS", "message": f"🤝 {agent_name} comprou 1 Tronco de {target_agent.get('name', 'Lenhador')} por {deal['price']} Plobs. (Aceitaria até {deal['buyer_ceiling']:.2f})", "timestamp": current_time})
+                    else:
+                        events.append({"id": str(uuid.uuid4()), "level": "WARNING", "message": f"❌ {agent_name} fechou negócio a {deal['price']}, mas a troca falhou: {msg}.", "timestamp": current_time})
+                        # O comprador regista o boicote na memória RAM!
+                        survival_brain.memory_sys._ensure_agent(agent['id'])
+                        survival_brain.memory_sys.agent_memories[agent['id']].setdefault('boycotts', {})[target_id] = current_tick
+                else:
+                    events.append({"id": str(uuid.uuid4()), "level": "WARNING", "message": f"💸 Falha de Mercado B2B: {agent_name} ofereceu {deal['buyer_ceiling']:.2f} Plobs, mas {target_agent.get('name', 'Lenhador')} exigiu no mínimo {deal['seller_floor']:.2f} Plobs!", "timestamp": current_time})
+                    # O comprador regista o boicote na memória RAM!
+                    survival_brain.memory_sys._ensure_agent(agent['id'])
+                    survival_brain.memory_sys.agent_memories[agent['id']].setdefault('boycotts', {})[target_id] = current_tick
 
         elif action == "CRAFT_FENCE":
             # Agora custa 2 TRONCOS (Logs)
@@ -431,6 +456,11 @@ def process_survival_tick(survival_brain, session):
                     inv['fences'] -= 1
                     customer['inventoryJSON'] = survival_brain.inventory_sys.to_string(cust_inv)
                     
+                    # === A CORREÇÃO DE OURO AQUI ===
+                    for up in updates_agents:
+                        if up['id'] == customer['id']:
+                            up['inv'] = customer['inventoryJSON']
+                    
                     events.append({"id": str(uuid.uuid4()), "level": "SUCCESS", "message": f"🚧 {agent_name} reparou a cerca. {customer['name']} pagou {fee} Plobs.", "timestamp": current_time})
                     updates_agents.append({"id": target_id, "type": "fence", "x": target_entity['x'], "z": target_entity['z'], "hp": 0, "hunger": 0, "inv": "{}", "mem": "{}", "state": "IDLE"})
                     
@@ -438,12 +468,9 @@ def process_survival_tick(survival_brain, session):
             # Acha o parceiro de negócios na lista global
             target_agent = next((a for a in agents if a['id'] == target_id), None)
             if target_agent:
-                # === CORREÇÃO DE TIPO AQUI ===
-                # Em vez de passar o agente bruto, passamos dicionários limpos
-                buyer_inv_dict = inv # Já é um dicionário (foi parseado no início do loop)
+                buyer_inv_dict = inv 
                 seller_inv_dict = survival_brain.inventory_sys.parse(target_agent.get('inventoryJSON', "{}"))
                 
-                # Criamos cópias temporárias para o sistema de negociação ler como dicionários
                 buyer_data = {
                     "inventoryJSON": buyer_inv_dict,
                     "hunger": agent.get('hunger', 100),
@@ -455,33 +482,48 @@ def process_survival_tick(survival_brain, session):
                     "lieLevel": target_agent.get('lieLevel', 0)
                 }
 
-                # O motor financeiro agora recebe dicionários e não dará mais erro de 'str'
                 deal = economy.negotiate_deal(buyer_data, seller_data, "potatoes", 1)
                 
                 if deal["success"]:
-                    # Executa a troca física de valores
                     success, new_b_inv, new_s_inv, msg = economy.execute_trade(
                         buyer_inv_dict, seller_inv_dict, "potatoes", deal["price"], 1
                     )
                     
                     if success:
-                        inv = new_b_inv # Atualiza a mochila do comprador
-                        # Atualiza a mochila do vendedor no objeto que será salvo no banco
+                        inv = new_b_inv 
                         target_agent['inventoryJSON'] = survival_brain.inventory_sys.to_string(new_s_inv)
+                        
+                        # === A CORREÇÃO DE OURO AQUI ===
+                        for up in updates_agents:
+                            if up['id'] == target_id:
+                                up['inv'] = target_agent['inventoryJSON']
                         
                         events.append({
                             "id": str(uuid.uuid4()), 
                             "level": "SUCCESS", 
-                            "message": f"🤝 {agent_name} comprou 1 Batata de {target_agent.get('name')} por {deal['price']} Plobs!", 
+                            "message": f"🤝 {agent_name} comprou 1 Batata de {target_agent.get('name', 'Fazendeiro')} por {deal['price']:.2f} Plobs. (Aceitaria até {deal['buyer_ceiling']:.2f})", 
                             "timestamp": current_time
                         })
+                    else:
+                        events.append({
+                            "id": str(uuid.uuid4()), 
+                            "level": "WARNING", 
+                            "message": f"❌ {agent_name} fechou negócio a {deal['price']:.2f}, mas a troca falhou: {msg}.", 
+                            "timestamp": current_time
+                        })
+                        # O comprador regista o boicote na memória RAM!
+                        survival_brain.memory_sys._ensure_agent(agent['id'])
+                        survival_brain.memory_sys.agent_memories[agent['id']].setdefault('boycotts', {})[target_id] = current_tick
                 else:
                     events.append({
                         "id": str(uuid.uuid4()), 
                         "level": "WARNING", 
-                        "message": f"💸 Falha: {agent_name} tentou comprar, mas {target_agent.get('name')} pediu caro demais!", 
+                        "message": f"💸 Falha de Mercado: {agent_name} ofereceu {deal['buyer_ceiling']:.2f} Plobs, mas {target_agent.get('name', 'Fazendeiro')} exigiu no mínimo {deal['seller_floor']:.2f} Plobs!", 
                         "timestamp": current_time
                     })
+                    # O comprador regista o boicote na memória RAM!
+                    survival_brain.memory_sys._ensure_agent(agent['id'])
+                    survival_brain.memory_sys.agent_memories[agent['id']].setdefault('boycotts', {})[target_id] = current_tick
 
        # Adiciona a memória e estado ao pacote de atualização (PARA OS VIVOS)
         updates_agents.append({

@@ -27,7 +27,7 @@ def create_entity(entity: EntityModel):
                 color=entity.color, sex=entity.sex, profession=entity.profession,
                 trustLevel=entity.trustLevel, lieLevel=entity.lieLevel,
                 married=entity.married,
-                age=agent.age
+                age=entity.age
             )
         return {"message": f"{entity.type} criado com sucesso no Neo4j!"}
     except Exception as e:
