@@ -68,7 +68,8 @@ class SurvivalController:
         # 1. A MENTE DO PREDADOR (Comportamento Isolado do Lobo)
         # =========================================================
         if agent_type == 'wolf':
-            is_aggressive = hunger < 90.0
+            # O instinto predatório ativa muito cedo (95%)
+            is_aggressive = hunger < 95.0
             
             if is_aggressive:
                 self.agent_states[agent_id] = "HUNTING"
@@ -77,15 +78,25 @@ class SurvivalController:
                 if preys:
                     target_prey = preys[0] 
                     
+                    # A) Mordida letal: Se estiver colado na presa
                     if target_prey['dist'] <= 3.0:
                         return ("ATTACK_AGENT", agent_pos[0], agent_pos[1], target_prey['id'], f"Atacando ferozmente {target_prey['name']}!")
                     
-                    if radar_data.get('fences'):
+                    # === A CORREÇÃO DA INTELIGÊNCIA VEM AQUI ===
+                    # B) Movimento: O lobo tenta SEMPRE andar em direção à presa primeiro
+                    move_decision = self._move_towards(agent_pos, (target_prey['x'], target_prey['z']), blocked_coords, f"Farejou presa e está a perseguir!")
+                    
+                    # C) Obstáculo: Se a decisão de movimento o manteve no mesmo X e Z atual, significa que ele esbarrou numa parede física
+                    is_stuck = move_decision[1] == agent_pos[0] and move_decision[2] == agent_pos[1]
+                    
+                    # D) Se bateu na parede, procura a cerca mais próxima para destruir e abrir caminho
+                    if is_stuck and radar_data.get('fences'):
                         target_fence = radar_data['fences'][0]
                         if target_fence['dist'] <= 3.0:
-                            return ("ATTACK_FENCE", agent_pos[0], agent_pos[1], target_fence['id'], f"Destruindo cerca para alcançar presa!")
+                            return ("ATTACK_FENCE", agent_pos[0], agent_pos[1], target_fence['id'], f"Caminho bloqueado! Destruindo cerca para alcançar presa!")
 
-                    return self._move_towards(agent_pos, (target_prey['x'], target_prey['z']), blocked_coords, f"Farejou presa e está a perseguir!")
+                    # Se não estiver preso (por exemplo, se houver um buraco na cerca), ele apenas retorna o passo do movimento!
+                    return move_decision
             
             self.agent_states[agent_id] = "PATROLLING"
             return self._wander(agent_pos, blocked_coords, "Saciado. Patrulhando território pacificamente.")
