@@ -28,8 +28,14 @@ export default function App() {
   const [nnState, setNNState] = useState<number[]>([0, 0, 0]);
 
   // MODO DE TESTE DE ROTAS
-  const [isRouteTestingMode, setIsRouteTestingMode] = useState(true);
+  const [isRouteTestingMode, setIsRouteTestingMode] = useState(false);
   const [routeBounds, setRouteBounds] = useState({ xMin: -24, xMax: -24, zMin: 24, zMax: 24 });
+
+  // === NOVO: ESTADO DO MODO DE EDIÇÃO DE TERRENO ===
+  const [isTerrainEditingMode, setIsTerrainEditingMode] = useState(false);
+
+  // === NOVO: ESTADO DO VISUALIZADOR DA REDE NEURAL (Desativado por padrão) ===
+  const [showNeuralNet, setShowNeuralNet] = useState(false);
 
   const [showNames, setShowNames] = useState(false);
 
@@ -389,6 +395,15 @@ export default function App() {
     }
   };
 
+  // === NOVO: FUNÇÃO PARA ALTERNAR O MODO ===
+  const handleToggleTerrainEditing = () => {
+    setIsTerrainEditingMode(!isTerrainEditingMode);
+    // Se estivermos desligando o modo, desmarca qualquer terreno que esteja selecionado
+    if (isTerrainEditingMode) {
+      setSelectedTileId(null);
+    }
+  };
+
   return (
     <div className="app-container">
       <Dashboard
@@ -414,10 +429,16 @@ export default function App() {
         currentMode={currentMode}
         onSwitchMode={handleSwitchMode}
         onClearLogs={handleClearLogs}
+        isTerrainEditingMode={isTerrainEditingMode}
+        onToggleTerrainEditing={handleToggleTerrainEditing}
+        showNeuralNet={showNeuralNet}
+        onToggleNeuralNet={() => setShowNeuralNet(!showNeuralNet)}
       />
 
       <div style={{ position: 'relative', flexGrow: 1 }}>
-        <NeuralNetworkVisualizer lastAction={lastNNAction} qValues={qValues} state={nnState} />
+        {showNeuralNet && (
+          <NeuralNetworkVisualizer lastAction={lastNNAction} qValues={qValues} state={nnState} />
+        )}
         <Viewport3D
           entities={entities}
           selectedEntityId={selectedEntityId}
@@ -438,6 +459,7 @@ export default function App() {
           analytics={analytics}
           showNames={showNames}
           onRotateEntity={handleRotateEntity}
+          isTerrainEditingMode={isTerrainEditingMode}
         />
       </div>
 

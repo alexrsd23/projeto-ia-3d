@@ -27,15 +27,68 @@ class SurvivalController:
         radar_data = self.perception_sys.scan_environment(agent_pos, world_entities, world_tiles, all_agents)
         self.memory_sys.update_from_perception(agent_id, radar_data, current_tick)
         
-        # === NOVO: MAPEAMENTO DE COLISÕES (OBSTÁCULOS) ===
+        # === MAPEAMENTO DE COLISÕES REFINADO (ALTA PERFORMANCE) ===
         blocked_coords = set()
+        solid_types = {'fence', 'gate', 'tree', 'stump', 'cactus', 'wall'}
+        
+        # Estruturas que se conectam visualmente (Cercas e Portões)
+        connectable_types = {'fence', 'gate', 'damaged_fence'}
+        connectable_coords = set()
+        
         for e in world_entities:
-            # Humanos e Lobos NÃO atravessam cercas inteiras
-            if e['type'] == 'fence':
-                blocked_coords.add((e['x'], e['z']))
-            # O Lobo TAMBÉM NÃO consegue atravessar portões (Humanos sim, passam livremente!)
-            elif e['type'] == 'gate' and agent_type == 'wolf':
-                blocked_coords.add((e['x'], e['z']))
+            if e.get('x') is None or e.get('z') is None:
+                continue
+                
+            ex = round(float(e['x']))
+            ez = round(float(e['z']))
+            etype = e.get('type')
+            
+            # 1. Registra os pilares principais
+            if etype in solid_types:
+                if etype == 'gate' and agent_type != 'wolf':
+                    pass # Humanos passam livremente pelo portão
+                else:
+                    blocked_coords.add((ex, ez))
+            
+            # 2. Registra os nós conectáveis para calcularmos as frestas
+            if etype in connectable_types:
+                connectable_coords.add((ex, ez))
+
+        # === O SEGREDO: PREENCHIMENTO DAS JUNÇÕES ===
+        # As cercas estão em posições pares (0, 2, 4), mas as vigas de madeira as conectam.
+        # Precisamos bloquear o espaço intermediário (ex: 1, 3, 5) para "selar" as paredes físicas!
+        for (ex, ez) in connectable_coords:
+            for dx, dz in [(2, 0), (-2, 0), (0, 2), (0, -2)]:
+                if (ex + dx, ez + dz) in connectable_coords:
+                    junction_x = ex + dx // 2
+                    junction_z = ez + dz // 2
+                    blocked_coords.add((junction_x, junction_z))
+                
+        # =========================================================
+        # 1. A MENTE DO PREDADOR (Comportamento Isolado do Lobo)
+        # =========================================================
+        if agent_type == 'wolf':
+            is_aggressive = hunger < 90.0
+            
+            if is_aggressive:
+                self.agent_states[agent_id] = "HUNTING"
+                preys = [p for p in radar_data.get('other_agents', []) if p['type'] in ['farmer', 'woodcutter', 'builder']]
+                
+                if preys:
+                    target_prey = preys[0] 
+                    
+                    if target_prey['dist'] <= 3.0:
+                        return ("ATTACK_AGENT", agent_pos[0], agent_pos[1], target_prey['id'], f"Atacando ferozmente {target_prey['name']}!")
+                    
+                    if radar_data.get('fences'):
+                        target_fence = radar_data['fences'][0]
+                        if target_fence['dist'] <= 3.0:
+                            return ("ATTACK_FENCE", agent_pos[0], agent_pos[1], target_fence['id'], f"Destruindo cerca para alcançar presa!")
+
+                    return self._move_towards(agent_pos, (target_prey['x'], target_prey['z']), blocked_coords, f"Farejou presa e está a perseguir!")
+            
+            self.agent_states[agent_id] = "PATROLLING"
+            return self._wander(agent_pos, blocked_coords, "Saciado. Patrulhando território pacificamente.")
 
         # === ZONAS PSICOLÓGICAS ===
         is_critical = hunger < 25     
@@ -47,11 +100,10 @@ class SurvivalController:
         if agent_type != 'wolf':
             wolves = [p for p in radar_data.get('other_agents', []) if p['type'] == 'wolf']
             if wolves:
-                nearest_wolf = wolves[0] # O Perception já ordena pelo mais perto
-                if nearest_wolf['dist'] <= 5.0: # Raio de Perigo Crítico
+                nearest_wolf = wolves[0] 
+                if nearest_wolf['dist'] <= 5.0: 
                     self.agent_states[agent_id] = "FLEEING"
                     
-                    # Calcula a direção OPOSTA ao lobo
                     dx = agent_pos[0] - nearest_wolf['x']
                     dz = agent_pos[1] - nearest_wolf['z']
                     
@@ -61,19 +113,17 @@ class SurvivalController:
                     new_x = max(-24, min(24, agent_pos[0] + move_x))
                     new_z = max(-24, min(24, agent_pos[1] + move_z))
                     
-                    if (new_x, new_z) not in blocked_coords:
+                    # Usa a nova validação segura
+                    if self._is_move_valid(agent_pos, new_x, new_z, move_x, move_z, blocked_coords):
                         return ("MOVE", new_x, new_z, None, f"Fugindo em pânico! Lobo detectado a {nearest_wolf['dist']:.1f} blocos!")
                     else:
                         return self._wander(agent_pos, blocked_coords, "Curralado! Tentando achar saída para fugir do predador!")
                     
        # === PRIORIDADE 2: INSTINTO SOCIAL E REPRODUTIVO ===
-        # Só pensa em sociologia se não estiver esfomeado (fome >= 30) e se for civil
         if agent_type != 'wolf' and hunger >= 30.0:
             is_married = agent.get('married', False)
             
-            # --- 1. SE SOLTEIRO: TENTA CASAR ---
             if not is_married:
-                # Carrega a lista de parentes/rejeitados da memória
                 my_rejections = self.memory_sys.agent_memories.get(agent_id, {}).get('rejections', [])
                 
                 potential_partners = [
@@ -82,17 +132,14 @@ class SurvivalController:
                 ]
                 
                 if potential_partners:
-                    partner = potential_partners[0] # Pega o mais próximo
+                    partner = potential_partners[0] 
                     if partner['dist'] <= 3.0:
                         self.agent_states[agent_id] = "PROPOSING"
-                        return ("PROPOSE_MARRIAGE", partner['x'], partner['z'], partner['id'], f"Pedindo {partner['name']} em casamento!")
+                        return ("PROPOSE_MARRIAGE", agent_pos[0], agent_pos[1], partner['id'], f"Pedindo {partner['name']} em casamento!")
                     else:
                         self.agent_states[agent_id] = "COURTING"
                         return self._move_towards(agent_pos, (partner['x'], partner['z']), blocked_coords, f"Indo conhecer {partner['name']}.")
-            
-            # --- 2. SE CASADO: TENTA PROCRIAR (A NOVA FASE 2) ---
             else:
-                # O instinto reprodutivo exige fartura (Fome >= 70) E RECURSOS MATERIAIS!
                 can_afford_child = False
                 if agent_type == 'farmer' and inv.get('potatoes', 0) >= 2:
                     can_afford_child = True
@@ -114,7 +161,7 @@ class SurvivalController:
                         spouse = spouses[0] 
                         if spouse['dist'] <= 3.0:
                             self.agent_states[agent_id] = "PROCREATING"
-                            return ("PROCREATE", spouse['x'], spouse['z'], spouse['id'], f"Momento romântico com {spouse['name']}...")
+                            return ("PROCREATE", agent_pos[0], agent_pos[1], spouse['id'], f"Momento romântico com {spouse['name']}...")
                         else:
                             self.agent_states[agent_id] = "COURTING"
                             return self._move_towards(agent_pos, (spouse['x'], spouse['z']), blocked_coords, f"Indo encontrar {spouse['name']} para ter um filho.")
@@ -132,23 +179,20 @@ class SurvivalController:
                 if radar_data.get('food_ready'):
                     target = radar_data['food_ready'][0] 
                     if target['dist'] <= 3:
-                        return ("HARVEST", target['x'], target['z'], target['tile_id'], "Colhendo batata madura.")
+                        return ("HARVEST", agent_pos[0], agent_pos[1], target['tile_id'], "Colhendo batata madura.")
                     return self._move_towards(agent_pos, (target['x'], target['z']), blocked_coords, "Indo colher comida.")
             else:
                 self.agent_states[agent_id] = "SEEK_TRADE"
                 
-                # Carrega os vendedores boicotados (se existirem)
                 my_boycotts = self.memory_sys.agent_memories.get(agent_id, {}).get('boycotts', {})
-                # O "Esquecimento Comercial": Se já passaram 50 ticks, ele dá uma segunda oportunidade
                 active_boycotts = [f_id for f_id, tick_banned in my_boycotts.items() if current_tick - tick_banned < 50]
                 
-                # Filtra apenas os fazendeiros que NÃO estão na lista de boicote
                 farmers = [p for p in radar_data.get('other_agents', []) if p['type'] == 'farmer' and p['id'] not in active_boycotts]
                 
                 if farmers:
                     target_farmer = farmers[0]
                     if target_farmer['dist'] <= 3:
-                        return ("TRADE", target_farmer['x'], target_farmer['z'], target_farmer['id'], f"Iniciando negociação de comida com {target_farmer['name']}.")
+                        return ("TRADE", agent_pos[0], agent_pos[1], target_farmer['id'], f"Iniciando negociação de comida com {target_farmer['name']}.")
                     return self._move_towards(agent_pos, (target_farmer['x'], target_farmer['z']), blocked_coords, f"Perseguindo o fazendeiro {target_farmer['name']} para comprar comida.")
                 else:
                     return self._wander(agent_pos, blocked_coords, "Comida está muito cara ou não há fazendeiros justos por perto. Explorando alternativas.")
@@ -160,56 +204,42 @@ class SurvivalController:
                 self.agent_states[agent_id] = "STRIKE"
                 return self._wander(agent_pos, blocked_coords, "Greve: O preço da comida está tão alto que as calorias gastas dariam prejuízo.")
 
-            # 2. Execução da Profissão Específica
             if agent_type == 'woodcutter':
-                # ETAPA 1: Limite do inventário! Se estiver cheio, nem tenta recolher nem cortar.
                 if not self.inventory_sys.can_collect_log(inv):
                     self.agent_states[agent_id] = "FULL_INVENTORY"
                     return self._wander(agent_pos, blocked_coords, "Mochila de madeira cheia! Vagando até encontrar um comprador.")
 
-                # ETAPA 2: O chão está sujo de troncos? Recolhe!
                 if radar_data.get('logs_on_ground'):
                     self.agent_states[agent_id] = "COLLECTING"
                     target = radar_data['logs_on_ground'][0]
                     if target['dist'] <= 3:
-                        return ("COLLECT_LOG", target['x'], target['z'], target['id'], "Apanhando tronco do chão para a mochila.")
+                        return ("COLLECT_LOG", agent_pos[0], agent_pos[1], target['id'], "Apanhando tronco do chão para a mochila.")
                     return self._move_towards(agent_pos, (target['x'], target['z']), blocked_coords, "Indo recolher um tronco caído.")
 
-                # ETAPA 3: O chão está limpo e tem espaço? Então vamos derrubar mais uma árvore!
                 self.agent_states[agent_id] = "CHOPPING"
                 if radar_data.get('trees'):
                     target = radar_data['trees'][0]
                     if target['dist'] <= 3:
-                        return ("CHOP_TREE", target['x'], target['z'], target['id'], "Derrubando árvore para extrair madeira.")
+                        return ("CHOP_TREE", agent_pos[0], agent_pos[1], target['id'], "Derrubando árvore para extrair madeira.")
                     return self._move_towards(agent_pos, (target['x'], target['z']), blocked_coords, "Indo até uma árvore para cortar.")
 
                 return self._wander(agent_pos, blocked_coords, "Procurando florestas para cortar.")
-
-                # ETAPA 3: Limite do inventário!
-                if not self.inventory_sys.can_collect_log(inv):
-                    self.agent_states[agent_id] = "FULL_INVENTORY"
-                    return self._wander(agent_pos, blocked_coords, "Mochila de madeira cheia! Vagando até encontrar um comprador.")
                     
             elif agent_type == 'builder':
                 if inv.get('logs', 0) < 2 and self.inventory_sys.can_carry_fence(inv):
                     self.agent_states[agent_id] = "SEEK_LOGS"
                     
-                    # Carrega os vendedores boicotados (se existirem)
                     my_boycotts = self.memory_sys.agent_memories.get(agent_id, {}).get('boycotts', {})
-                    
-                    # O "Esquecimento Comercial": Se já passaram 50 ticks (algum tempo de jogo), ele dá uma segunda oportunidade
                     active_boycotts = [wc_id for wc_id, tick_banned in my_boycotts.items() if current_tick - tick_banned < 50]
                     
-                    # Filtra os lenhadores que NÃO estão boicotados
                     woodcutters = [p for p in radar_data.get('other_agents', []) if p['type'] == 'woodcutter' and p['id'] not in active_boycotts]
                     
                     if woodcutters:
                         target_wc = woodcutters[0]
                         if target_wc['dist'] <= 3:
-                            return ("TRADE_LOGS", target_wc['x'], target_wc['z'], target_wc['id'], f"Negociando compra de madeira com {target_wc['name']}.")
+                            return ("TRADE_LOGS", agent_pos[0], agent_pos[1], target_wc['id'], f"Negociando compra de madeira com {target_wc['name']}.")
                         return self._move_towards(agent_pos, (target_wc['x'], target_wc['z']), blocked_coords, f"Indo comprar madeira de {target_wc['name']}.")
                     else:
-                        # Se todos estiverem boicotados ou não houver nenhum
                         return self._wander(agent_pos, blocked_coords, "Madeira está muito cara ou em falta. Esperando o mercado acalmar.")
 
                 if inv.get('logs', 0) >= 2 and self.inventory_sys.can_carry_fence(inv):
@@ -220,7 +250,7 @@ class SurvivalController:
                     self.agent_states[agent_id] = "BUILDING"
                     target = radar_data['broken_fences'][0]
                     if target['dist'] <= 3:
-                        return ("REPAIR_FENCE", target['x'], target['z'], target['id'], "Reparando estrutura danificada.")
+                        return ("REPAIR_FENCE", agent_pos[0], agent_pos[1], target['id'], "Reparando estrutura danificada.")
                     return self._move_towards(agent_pos, (target['x'], target['z']), blocked_coords, "Deslocando para reparo.")
                 
                 return self._wander(agent_pos, blocked_coords, "Sem matéria-prima ou contratos. Explorando.")
@@ -230,7 +260,7 @@ class SurvivalController:
                 if radar_data.get('empty_farms'):
                     target = random.choice(radar_data['empty_farms'][:3])
                     if target['dist'] <= 3:
-                        return ("PLANT", target['x'], target['z'], target['id'], "Plantando sementes.")
+                        return ("PLANT", agent_pos[0], agent_pos[1], target['id'], "Plantando sementes.")
                     return self._move_towards(agent_pos, (target['x'], target['z']), blocked_coords, "Indo replantar em terra livre.")
                 
                 farm_mem = self.memory_sys.get_best_farm_location(agent_id, agent_pos)
@@ -244,45 +274,48 @@ class SurvivalController:
                 if radar_data.get('arable_land'):
                     target = random.choice(radar_data['arable_land'][:3])
                     if target['dist'] <= 3:
-                        return ("PLOW", target['x'], target['z'], target['id'], "Arando solo virgem.")
+                        return ("PLOW", agent_pos[0], agent_pos[1], target['id'], "Arando solo virgem.")
                     return self._move_towards(agent_pos, (target['x'], target['z']), blocked_coords, "Buscando terreno virgem para arar.")
                 
-            # O LOBO
-            elif agent_type == 'wolf':
-                self.agent_states[agent_id] = "HUNTING"
-                preys = [p for p in radar_data.get('other_agents', []) if p['type'] in ['farmer', 'woodcutter', 'builder']]
-                if preys:
-                    target_prey = preys[0]
-                    if target_prey['dist'] <= 3:
-                        return ("ATTACK_AGENT", target_prey['x'], target_prey['z'], target_prey['id'], f"Atacando {target_prey['name']} (-20 HP)!")
-                    
-                    if radar_data.get('fences'):
-                        target_fence = radar_data['fences'][0]
-                        if target_fence['dist'] <= 3:
-                            return ("ATTACK_FENCE", target_fence['x'], target_fence['z'], target_fence['id'], "Destruindo barreira para alcançar a presa!")
-
-                    return self._move_towards(agent_pos, (target_prey['x'], target_prey['z']), blocked_coords, f"Perseguindo {target_prey['name']}!")
-                
-                if radar_data.get('fences'):
-                    target_fence = radar_data['fences'][0]
-                    if target_fence['dist'] <= 3:
-                        return ("ATTACK_FENCE", target_fence['x'], target_fence['z'], target_fence['id'], "Destruindo uma estrutura por instinto.")
-                    return self._move_towards(agent_pos, (target_fence['x'], target_fence['z']), blocked_coords, "Indo investigar uma estrutura para destruir.")
-
-                return self._wander(agent_pos, blocked_coords, "Patrulhando em busca de presas.")
 
         # PRIORIDADE 3: Colecionador
         if needs_stock and radar_data.get('food_ready'):
             target = radar_data['food_ready'][0] 
             if target['dist'] <= 3:
                 self.agent_states[agent_id] = "STOCKPILING"
-                return ("HARVEST", target['x'], target['z'], target['tile_id'], "Estocagem preventiva.")
+                return ("HARVEST", agent_pos[0], agent_pos[1], target['tile_id'], "Estocagem preventiva.")
 
         # PRIORIDADE 4: Exploração
         self.agent_states[agent_id] = "EXPLORE"
         return self._wander(agent_pos, blocked_coords, None)
 
-    # === ALGORITMO DE DESVIO DE OBSTÁCULOS (PATHFINDING LEVE) ===
+    # === O MOTOR DE FÍSICA E ANTI-GHOSTING ===
+    def _is_move_valid(self, current, nx, nz, mx, mz, blocked_coords):
+        # 1. O Bloco de destino final está ocupado?
+        if (round(nx), round(nz)) in blocked_coords:
+            return False
+            
+        # 2. O ponto médio da trajetória está bloqueado?
+        # IMPORTANTE: Como os agentes andam de 2 em 2, eles pulavam as junções em movimentos diagonais.
+        # Agora verificamos sempre o meio do passo, independentemente da direção!
+        mid_x = round(current[0] + mx / 2)
+        mid_z = round(current[1] + mz / 2)
+        if (mid_x, mid_z) in blocked_coords:
+            return False
+                
+        # 3. Anti-Ghosting DIAGONAL (Quinas fechadas)
+        if mx != 0 and mz != 0:
+            side_x = (round(current[0] + mx), round(current[1]))
+            side_z = (round(current[0]), round(current[1] + mz))
+            
+            # Só bloqueia se AMBOS os lados estiverem fechados, formando um "V" exato.
+            # Se apenas um lado tiver cerca, ele consegue escorregar rente à parede para dobrar a esquina.
+            if side_x in blocked_coords and side_z in blocked_coords:
+                return False
+                
+        return True
+
+    # === ALGORITMO DE DESVIO E NAVEGAÇÃO ===
     def _move_towards(self, current, target, blocked_coords, log_msg=None):
         dx = target[0] - current[0]
         dz = target[1] - current[1]
@@ -291,8 +324,8 @@ class SurvivalController:
         best_z = 2 if dz > 0 else (-2 if dz < 0 else 0)
         
         moves_to_try = []
-        # Se for um movimento diagonal, tenta os vetores laterais caso bloqueado
         if best_x != 0 and best_z != 0:
+            # Tenta diagonal, se bater em cerca (quina), tenta escorregar reto para o lado
             moves_to_try = [(best_x, best_z), (best_x, 0), (0, best_z)]
         else:
             moves_to_try = [(best_x, best_z)]
@@ -304,11 +337,9 @@ class SurvivalController:
             nx = max(-24, min(24, current[0] + mx))
             nz = max(-24, min(24, current[1] + mz))
             
-            # Se a coordenada não tiver cerca/portão, mova-se para lá!
-            if (nx, nz) not in blocked_coords:
+            if self._is_move_valid(current, nx, nz, mx, mz, blocked_coords):
                 return ("MOVE", nx, nz, None, log_msg)
                 
-        # Se todos os caminhos à frente estiverem cercados, ele fica parado a pensar
         return ("MOVE", current[0], current[1], None, (log_msg or "") + " (Caminho bloqueado!)")
         
     def _wander(self, current, blocked_coords, log_msg=None):
@@ -317,6 +348,8 @@ class SurvivalController:
         for mx, mz in moves:
             nx = max(-24, min(24, current[0] + mx))
             nz = max(-24, min(24, current[1] + mz))
-            if (nx, nz) not in blocked_coords:
+            
+            if self._is_move_valid(current, nx, nz, mx, mz, blocked_coords):
                 return ("MOVE", nx, nz, None, log_msg)
+                
         return ("MOVE", current[0], current[1], None, log_msg)

@@ -50,12 +50,13 @@ interface Viewport3DProps {
   routeBounds: RouteBounds;
   analytics: any;
   showNames: boolean;
+  isTerrainEditingMode: boolean;
 }
 
 export default function Viewport3D({
   entities, selectedEntityId, onSelectEntity, onDeselect, onMoveEntity, onRotateEntity,
   sunPos, moonPos, onMoveSun, onMoveMoon, isDay, tiles, selectedTileId, onSelectTile, heatmap,
-  isRouteTestingMode, routeBounds, analytics, showNames
+  isRouteTestingMode, routeBounds, analytics, showNames, isTerrainEditingMode
 }: Viewport3DProps) {
 
   const [isDragging, setIsDragging] = useState(false);
@@ -76,7 +77,11 @@ export default function Viewport3D({
           <Moon position={moonPos} isSelected={selectedEntityId === 'moon'} onClick={() => onSelectEntity('moon')} onMove={onMoveMoon} setIsDragging={setIsDragging} />
         )}
 
-        <Ground tiles={tiles} selectedTileId={selectedTileId} onSelectTile={onSelectTile} />
+        <Ground 
+          tiles={tiles} 
+          selectedTileId={selectedTileId} 
+          onSelectTile={isTerrainEditingMode ? onSelectTile : () => {}} 
+        />
 
         {/* O Mapa de Calor Clássico */}
         <HeatmapSystem data={heatmap} maxVisits={maxVisits} />

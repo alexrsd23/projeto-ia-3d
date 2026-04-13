@@ -49,7 +49,9 @@ def process_survival_tick(survival_brain, session):
         e.id AS id,
         e.type AS type,
         e.posX AS x,
-        e.posZ AS z
+        e.posZ AS z,
+        coalesce(e.health, 100.0) AS hp,
+        coalesce(e.age, 0) AS age
     """
 
     # === ADICIONE ESTA QUERY QUE ESTAVA FALTANDO ===
@@ -76,7 +78,7 @@ def process_survival_tick(survival_brain, session):
     for entity in world_entities:
         if entity['type'] == 'fence':
             # 0.5% de chance da cerca quebrar a cada tick
-            if random.random() < 0.005:
+            if random.random() < 0.0002:
                 updates_agents.append({
                     "id": entity['id'], "type": "damaged_fence", 
                     "x": entity['x'], "z": entity['z'],
@@ -148,7 +150,6 @@ def process_survival_tick(survival_brain, session):
                 new_hunger, new_hp = recovered['hunger'], recovered['hp']
                 events.append({"id": str(uuid.uuid4()), "level": "WARNING", "message": f"{agent_name} — Inventário: Consumiu 1 batata (Nova fome: {new_hunger:.1f}%)", "timestamp": current_time})
                 
-        # === O MOTOR DE COMBATE ===
         elif action == "ATTACK_AGENT":
             target_agent = next((a for a in agents if a['id'] == target_id), None)
             if target_agent:
@@ -156,25 +157,36 @@ def process_survival_tick(survival_brain, session):
                 target_agent['hp'] = target_agent.get('hp', 100.0) - 20.0
                 events.append({"id": str(uuid.uuid4()), "level": "ERROR", "message": f"🩸 {agent_name} cravou os dentes em {target_agent.get('name', 'Alguém')}! (-20 HP)", "timestamp": current_time})
                 
-                # === CORREÇÃO DA PERSISTÊNCIA DE DANO ===
-                # Intercepta a vítima na fila de gravação deste tick e força a descida do HP!
                 for up in updates_agents:
                     if up['id'] == target_id:
                         up['hp'] = target_agent['hp']
                         up['state'] = "BLEEDING"
-                        # Se o ataque foi fatal, transforma-o em Loot antes mesmo do próximo turno
                         if target_agent['hp'] <= 0:
                             up['type'] = 'loot'
                             up['state'] = 'DEAD'
+                            
+                            # === NOVO: O LOBO ALIMENTA-SE ===
+                            new_hunger = 100.0 # Barriga cheia
+                            new_hp = 100.0     # Vida cheia
+                            events.append({"id": str(uuid.uuid4()), "level": "ERROR", "message": f"🐺 CARNIFICINA: {agent_name} devorou a presa e está 100% saciado!", "timestamp": current_time})
 
         elif action == "ATTACK_FENCE":
             target_entity = next((e for e in world_entities if e['id'] == target_id), None)
             if target_entity:
-                events.append({"id": str(uuid.uuid4()), "level": "WARNING", "message": f"🐾 {agent_name} destruiu a cerca aos pedaços!", "timestamp": current_time})
+                current_hp = float(target_entity.get('hp', 100.0))
                 
-                # A cerca íntegra morre e vira uma 'damaged_fence' imediatamente
-                updates_agents.append({"id": target_id, "type": "damaged_fence", "x": target_entity['x'], "z": target_entity['z'], "hp": 0, "hunger": 0, "inv": "{}", "mem": "{}", "state": "IDLE"})
-                world_entities = [e for e in world_entities if e['id'] != target_id]
+                # === CORREÇÃO: Variável isolada (fence_new_hp) para não matar o lobo! ===
+                fence_new_hp = current_hp - 35.0 
+                
+                if fence_new_hp <= 0:
+                    events.append({"id": str(uuid.uuid4()), "level": "WARNING", "message": f"🐾 {agent_name} destruiu a cerca aos pedaços!", "timestamp": current_time})
+                    updates_agents.append({"id": target_id, "type": "damaged_fence", "x": target_entity['x'], "z": target_entity['z'], "hp": 0, "hunger": 0, "age": target_entity.get('age', 0), "inv": "{}", "mem": "{}", "state": "IDLE"})
+                    world_entities = [e for e in world_entities if e['id'] != target_id]
+                else:
+                    events.append({"id": str(uuid.uuid4()), "level": "WARNING", "message": f"🐺 {agent_name} está a morder a cerca! (Integridade: {fence_new_hp:.0f}/100)", "timestamp": current_time})
+                    target_entity['hp'] = fence_new_hp
+                    updates_agents.append({"id": target_id, "type": "fence", "x": target_entity['x'], "z": target_entity['z'], "hp": fence_new_hp, "hunger": 0, "age": target_entity.get('age', 0), "inv": "{}", "mem": "{}", "state": "IDLE"})
+                    world_entities = [e for e in world_entities if e['id'] != target_id]
                 
         # === O MOTOR DE CASAMENTO (SOCIOLOGIA & GENÉTICA) ===
         elif action == "PROPOSE_MARRIAGE":
@@ -462,7 +474,9 @@ def process_survival_tick(survival_brain, session):
                             up['inv'] = customer['inventoryJSON']
                     
                     events.append({"id": str(uuid.uuid4()), "level": "SUCCESS", "message": f"🚧 {agent_name} reparou a cerca. {customer['name']} pagou {fee} Plobs.", "timestamp": current_time})
-                    updates_agents.append({"id": target_id, "type": "fence", "x": target_entity['x'], "z": target_entity['z'], "hp": 0, "hunger": 0, "inv": "{}", "mem": "{}", "state": "IDLE"})
+                    
+                    # CORREÇÃO: Restaura o HP para 100 e preserva a idade
+                    updates_agents.append({"id": target_id, "type": "fence", "x": target_entity['x'], "z": target_entity['z'], "hp": 100.0, "hunger": 0, "age": target_entity.get('age', 0), "inv": "{}", "mem": "{}", "state": "IDLE"})
                     
         elif action == "TRADE":
             # Acha o parceiro de negócios na lista global

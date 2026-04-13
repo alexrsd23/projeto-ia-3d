@@ -19,9 +19,14 @@ def create_entity(entity: EntityModel):
     """
     try:
         with driver.session() as session:
+            # === CORREÇÃO 1: Arredondamento para travar as casas decimais ===
+            aligned_x = round(entity.position[0])
+            aligned_y = round(entity.position[1], 2) # Y é altura, mantemos as casas decimais
+            aligned_z = round(entity.position[2])
+            
             session.run(
                 query, id=entity.id, type=entity.type, 
-                posX=entity.position[0], posY=entity.position[1], posZ=entity.position[2], 
+                posX=aligned_x, posY=aligned_y, posZ=aligned_z, 
                 rotation=entity.rotation,
                 health=entity.health, hunger=entity.hunger, name=entity.name,
                 color=entity.color, sex=entity.sex, profession=entity.profession,
@@ -130,7 +135,9 @@ def get_survival_entities():
                     "sex": node.get("sex"),
                     "profession": node.get("profession"),
                     "trustLevel": node.get("trustLevel"),
-                    "lieLevel": node.get("lieLevel")
+                    "lieLevel": node.get("lieLevel"),
+                    "married": node.get("married", False), 
+                    "age": node.get("age", 0)
                 })
         return entities
     except Exception as e:
@@ -159,7 +166,6 @@ def delete_all_entities():
     
 @router.patch("/{entity_id}/position")
 def update_entity_position(entity_id: str, pos_update: PositionUpdateModel):
-    """Atualiza as coordenadas X, Y, Z de uma entidade específica."""
     query = """
     MATCH (e:Entity {id: $id})
     SET e.posX = $posX, e.posY = $posY, e.posZ = $posZ
@@ -167,12 +173,17 @@ def update_entity_position(entity_id: str, pos_update: PositionUpdateModel):
     """
     try:
         with driver.session() as session:
+            # === CORREÇÃO 1: Arredondamento ao mover ===
+            aligned_x = round(pos_update.position[0])
+            aligned_y = round(pos_update.position[1], 2)
+            aligned_z = round(pos_update.position[2])
+            
             result = session.run(
                 query, 
                 id=entity_id, 
-                posX=pos_update.position[0], 
-                posY=pos_update.position[1], 
-                posZ=pos_update.position[2]
+                posX=aligned_x, 
+                posY=aligned_y, 
+                posZ=aligned_z
             )
             # Solução segura: Se não encontrar no banco, avisa no log interno mas não crasha a API
             records = list(result)

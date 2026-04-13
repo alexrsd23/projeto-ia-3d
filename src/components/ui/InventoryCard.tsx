@@ -4,7 +4,7 @@ interface InventoryCardProps {
 }
 
 export default function InventoryCard({ entityType, inventoryJSON }: InventoryCardProps) {
-  let items = { potatoes: 0, seeds: 0, logs: 0, stones: 0, fences: 0 };
+  let items = { potatoes: 0, seeds: 0, logs: 0, stones: 0, fences: 0, plobs: 0 };
   
   try {
     if (inventoryJSON) {
@@ -23,6 +23,17 @@ export default function InventoryCard({ entityType, inventoryJSON }: InventoryCa
       
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
         
+        {/* === NOVO: CONTA BANCÁRIA (PLOBS) OCUPANDO AS DUAS COLUNAS === */}
+        <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: '8px', background: '#fef9c3', padding: '6px 10px', borderRadius: '6px', border: '1px solid #fde047' }}>
+          <span style={{ fontSize: '16px' }}>💰</span>
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            <span style={{ fontSize: '10px', color: '#854d0e', fontWeight: 600 }}>DINHEIRO (PLOBS)</span>
+            <span style={{ fontSize: '14px', fontWeight: 700, color: '#713f12' }}>
+              {typeof items.plobs === 'number' ? items.plobs.toFixed(2) : '0.00'}
+            </span>
+          </div>
+        </div>
+
         {/* Itens Essenciais (Todos têm, para comer ou plantar) */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#f8fafc', padding: '6px 10px', borderRadius: '6px' }}>
           <span style={{ fontSize: '16px' }}>🥔</span>

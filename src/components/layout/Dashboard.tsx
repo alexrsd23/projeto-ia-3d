@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { type Entity } from '../../types';
 import FarmerInfoCard from '../ui/CharacterInfoCard';
 import CharacterInfoCard from '../ui/CharacterInfoCard';
+import WolfInfoCard from '../ui/WolfInfoCard';   // NOVO
+import FenceInfoCard from '../ui/FenceInfoCard'; // NOVO
 
 interface RouteBounds {
   xMin: number; xMax: number; zMin: number; zMax: number;
@@ -30,6 +32,10 @@ interface DashboardProps {
   currentMode: string;
   onSwitchMode: (mode: string) => void;
   onClearLogs: () => void;
+  isTerrainEditingMode: boolean;
+  onToggleTerrainEditing: () => void;
+  showNeuralNet: boolean;
+  onToggleNeuralNet: () => void;
 }
 
 export default function Dashboard({
@@ -38,7 +44,8 @@ export default function Dashboard({
   onPlow, onPlant, onDeselectTile,
   isRouteTestingMode, onToggleRouteTesting, routeBounds, setRouteBounds,
   onKillAllAgents, showNames, onToggleShowNames, onClearAIMemory,
-  currentMode, onSwitchMode, onClearLogs
+  currentMode, onSwitchMode, onClearLogs, isTerrainEditingMode, onToggleTerrainEditing,
+  showNeuralNet, onToggleNeuralNet
 }: DashboardProps) {
 
   const [name, setName] = useState('');
@@ -138,6 +145,28 @@ export default function Dashboard({
             <span>Limpar Terminal Log</span>
           </button>
 
+          <button className={`card-btn half ${isTerrainEditingMode ? 'active-blue' : ''}`} onClick={onToggleTerrainEditing}>
+            <span className="icon-large">🗺️</span>
+            <span>Editar Terreno</span>
+            <div className="toggle-container">
+              <div className={`toggle-switch ${isTerrainEditingMode ? 'on' : ''}`}>
+                <div className="toggle-knob"></div>
+              </div>
+              <span className="toggle-label">{isTerrainEditingMode ? 'ON' : 'OFF'}</span>
+            </div>
+          </button>
+
+          <button className={`card-btn full ${showNeuralNet ? 'active-blue' : ''}`} onClick={onToggleNeuralNet}>
+            <span className="icon-large">🕸️</span>
+            <span>Ligar Rede Neural</span>
+            <div className="toggle-container">
+              <div className={`toggle-switch ${showNeuralNet ? 'on' : ''}`}>
+                <div className="toggle-knob"></div>
+              </div>
+              <span className="toggle-label">{showNeuralNet ? 'ON' : 'OFF'}</span>
+            </div>
+          </button>
+
         </div>
 
         {/* === ÁREA DE SPAWN (Só visível se modo de teste ON) === */}
@@ -219,6 +248,13 @@ export default function Dashboard({
               (selectedEntity.type === 'farmer' || selectedEntity.type === 'woodcutter' || selectedEntity.type === 'builder') ? (
                 // 1. Agentes Inteligentes (O nosso Super Card)
                 <CharacterInfoCard entity={selectedEntity} onSaveIdentity={onSaveIdentity} />
+
+              ) : selectedEntity.type === 'wolf' ? (
+                <WolfInfoCard entity={selectedEntity} />
+
+              ) : (selectedEntity.type === 'fence' || selectedEntity.type === 'gate' || selectedEntity.type === 'damaged_fence') ? (
+                <FenceInfoCard entity={selectedEntity} />
+
               ) : selectedEntity.type === 'character' ? (
                 // 2. Modo Rotas (Layout Antigo)
                 <div style={{ marginTop: '15px' }}>
@@ -247,22 +283,17 @@ export default function Dashboard({
                           selectedEntity.type === 'stone' ? '🪨' :
                             selectedEntity.type === 'log' ? '🪵' :
                               selectedEntity.type === 'stump' ? '🪵' :
-                                selectedEntity.type === 'fence' ? '🧱' :
-                                  selectedEntity.type === 'damaged_fence' ? '🚧' :
-                                    selectedEntity.type === 'loot' ? '💰' :
-                                      selectedEntity.type === 'wolf' ? '🐺' : '📦'}
+                                selectedEntity.type === 'loot' ? '💰' :
+                                  selectedEntity.type === 'wolf' ? '🐺' : '📦'}
                   </div>
                   <div style={{ textAlign: 'center' }}>
                     <p style={{ fontWeight: 700, color: '#334155', fontSize: '14px' }}>
-                      {selectedEntity.type === 'wolf' ? 'Lobo Selvagem' :
-                        selectedEntity.type === 'damaged_fence' ? 'Cerca Destruída' :
-                          selectedEntity.type === 'loot' ? 'Saco de Espólios' :
-                            selectedEntity.type === 'tree' ? 'Árvore' :
-                              selectedEntity.type === 'stone' ? 'Pedra' :
-                                selectedEntity.type === 'log' ? 'Tronco' :
-                                  selectedEntity.type === 'fence' ? 'Cerca' :
-                                    selectedEntity.type === 'house' ? 'Casa' :
-                                      selectedEntity.type === 'cactus' ? 'Cacto' : 'Objeto Desconhecido'}
+                      {selectedEntity.type === 'loot' ? 'Saco de Espólios' :
+                        selectedEntity.type === 'tree' ? 'Árvore' :
+                          selectedEntity.type === 'stone' ? 'Pedra' :
+                            selectedEntity.type === 'log' ? 'Tronco' :
+                                selectedEntity.type === 'house' ? 'Casa' :
+                                  selectedEntity.type === 'cactus' ? 'Cacto' : 'Objeto Desconhecido'}
                     </p>
                     <p style={{ fontSize: '12px', color: '#94a3b8', fontFamily: 'monospace', marginTop: '4px' }}>
                       ID: {selectedEntity.id.split('-')[0]}

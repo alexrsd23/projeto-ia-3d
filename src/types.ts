@@ -15,6 +15,8 @@ export interface Entity {
   profession?: string;  // Título da profissão
   trustLevel?: number;  // Nível de confiança (0-100)
   lieLevel?: number;    // Nível de mentira (0-100)
+  married?: boolean;    // Estado civil
+  age?: number;         // Idade biológica do agente
 }
 
 export interface CropData {

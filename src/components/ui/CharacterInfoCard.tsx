@@ -10,6 +10,7 @@ interface CharacterInfoCardProps {
 export default function CharacterInfoCard({ entity, onSaveIdentity }: CharacterInfoCardProps) {
   const [name, setName] = useState(entity.name || '');
   const [birthdate, setBirthdate] = useState(entity.birthdate || '');
+  const isMarried = entity.married === true;
 
   // Sincroniza os inputs se a entidade selecionada mudar no 3D
   useEffect(() => {
@@ -52,7 +53,7 @@ export default function CharacterInfoCard({ entity, onSaveIdentity }: CharacterI
 
   return (
     <div style={{ marginTop: '15px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-      
+
       {/* CABEÇALHO DO PERSONAGEM, DNA & HUMOR */}
       <div style={{ background: '#f8fafc', padding: '12px', borderRadius: '8px', border: `1px solid ${moodColor}40`, borderLeft: `4px solid ${moodColor}` }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
@@ -111,6 +112,12 @@ export default function CharacterInfoCard({ entity, onSaveIdentity }: CharacterI
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
             <span style={{ color: '#ef4444', fontSize: '16px', marginBottom: '2px' }}>🎭</span>
             <span style={{ color: '#64748b', fontWeight: 600 }}>Mentira: <span style={{ color: '#ef4444' }}>{entity.lieLevel ?? 0}</span></span>
+          </div>
+
+          {/* === CORREÇÃO APLICADA AQUI === */}
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+            <span style={{ color: '#8b5cf6', fontSize: '16px', marginBottom: '2px' }}>{isMarried ? '💍' : '👤'}</span>
+            <span style={{ color: '#64748b', fontWeight: 600 }}>Estado: <span style={{ color: '#8b5cf6' }}>{isMarried ? 'Casado(a)' : 'Solteiro'}</span></span>
           </div>
         </div>
       </div>
