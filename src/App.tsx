@@ -3,7 +3,7 @@ import Dashboard from './components/layout/Dashboard';
 import Viewport3D from './components/layout/Viewport3D';
 import EventLogPanel from './components/ui/EventLogPanel';
 import NeuralNetworkVisualizer from './components/ui/NeuralNetworkVisualizer';
-import type { Entity, TileData, SimulationEvent, RouteAnalytics } from './types';
+import type { Entity, TileData, SimulationEvent, RouteAnalytics, PlotData } from './types';
 import './App.css';
 import { CHARACTER_SETTINGS } from './config/characterSettings';
 import TelemetryPanel from './components/ui/TelemetryPanel';
@@ -62,6 +62,8 @@ export default function App() {
     }
     return initialTiles;
   });
+
+  const [plots, setPlots] = useState<PlotData[]>([]);
 
   const saveTileToDatabase = async (tileData: TileData) => {
     try { await fetch('http://127.0.0.1:8000/api/tiles', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(tileData) }); } catch (error) { console.error(error); }
@@ -138,6 +140,12 @@ export default function App() {
             return newTiles;
           });
         }
+
+        const resPlots = await fetch('http://127.0.0.1:8000/api/entities/plots');
+        if (resPlots.ok) {
+          const savedPlots: PlotData[] = await resPlots.json();
+          setPlots(savedPlots);
+        }
       } catch (error) { console.error(error); }
     };
     fetchWorld();
@@ -180,6 +188,12 @@ export default function App() {
               });
               return newTiles;
             });
+          }
+
+          const responsePlots = await fetch('http://127.0.0.1:8000/api/entities/plots');
+          if (responsePlots.ok) {
+            const updatedPlots: PlotData[] = await responsePlots.json();
+            setPlots(updatedPlots);
           }
         } catch (error) { console.error(error); } finally { isProcessingTick.current = false; }
       }, 250);
@@ -441,6 +455,7 @@ export default function App() {
         )}
         <Viewport3D
           entities={entities}
+          plots={plots}
           selectedEntityId={selectedEntityId}
           onSelectEntity={(id) => setSelectedEntityId(id)}
           onDeselect={() => setSelectedEntityId(null)}

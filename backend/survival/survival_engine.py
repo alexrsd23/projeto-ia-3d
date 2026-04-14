@@ -21,10 +21,12 @@ def process_survival_tick(survival_brain, session):
     # Tipos de agentes inteligentes/sensitivos do sistema
     AGENT_TYPES = ['farmer', 'woodcutter', 'builder', 'wolf']
 
-    # 1. Busca global de agentes sensíveis (Usando Parâmetro $agent_types)
+    # 1. Busca global de agentes sensíveis (Agora verifica Propriedades!)
     query_agents = """
     MATCH (e:Entity)
     WHERE e.type IN $agent_types
+    // OPTIONAL MATCH verifica se ele é dono de um Plot. Se for, p.id existe.
+    OPTIONAL MATCH (e)-[:OWNS]->(p:Plot)
     RETURN 
         e.id AS id,
         e.type AS type,
@@ -38,7 +40,9 @@ def process_survival_tick(survival_brain, session):
         e.state AS state,
         coalesce(e.married, false) AS married,
         coalesce(e.age, 0) AS age,
-        coalesce(e.sex, 'M') AS sex
+        coalesce(e.sex, 'M') AS sex,
+        // Retorna TRUE se o p.id não for nulo (ou seja, se ele encontrou o relacionamento OWNS)
+        (p.id IS NOT NULL) AS owns_plot
     """
 
     # 2. Busca de tudo que NÃO é agente sensível
@@ -65,10 +69,24 @@ def process_survival_tick(survival_brain, session):
         t.cropsJSON AS cropsJSON
     """
 
+    # === NOVO: BUSCA DAS PROPRIEDADES RESERVADAS (AGORA COM O ID DO DONO) ===
+    query_plots = """
+    MATCH (owner:Entity)-[:OWNS]->(p:Plot)
+    RETURN 
+        p.id AS id,
+        owner.id AS ownerId,  // <--- O ID de quem comprou!
+        p.startX AS startX,
+        p.startZ AS startZ,
+        p.width AS width,
+        p.height AS height,
+        p.status AS status
+    """
+
     # Execução das Queries no Banco de Dados
     agents = session.run(query_agents, agent_types=AGENT_TYPES).data()
     world_entities = session.run(query_world, agent_types=AGENT_TYPES).data()
     world_tiles = session.run(query_tiles).data()
+    world_plots = session.run(query_plots).data() # <--- ADICIONE A EXECUÇÃO AQUI
     
     tiles_map = {t['id']: t for t in world_tiles}
     
@@ -89,8 +107,10 @@ def process_survival_tick(survival_brain, session):
     for agent in agents:
         inv = survival_brain.inventory_sys.parse(agent.get('inventoryJSON', "{}"))
         
-        # 2. O Cérebro Pensa e Atualiza a RAM (AGORA COM 5 VARIÁVEIS)
-        action, new_x, new_z, target_id, brain_log = survival_brain.decide_next_move(agent, world_entities, world_tiles, current_tick, agents)
+        # 2. O Cérebro Pensa e Atualiza a RAM (AGORA COM 6 VARIÁVEIS)
+        action, new_x, new_z, target_id, brain_log = survival_brain.decide_next_move(
+            agent, world_entities, world_tiles, world_plots, current_tick, agents
+        )
         
         # Formatação Cronológica do Log do Cérebro
         current_time = datetime.now().strftime("%H:%M:%S")
@@ -317,6 +337,26 @@ def process_survival_tick(survival_brain, session):
                     else:
                         events.append({"id": str(uuid.uuid4()), "level": "WARNING", "message": f"🚫 Tentativa de gravidez falhou: {agent_name} ou parceiro não têm os recursos materiais exigidos!", "timestamp": current_time})
 
+        elif action == "RESERVE_PLOT":
+            blueprint = target_id # O blueprint foi passado no parâmetro target_id
+            plot_id = f"plot-{agent['id']}"
+            
+            # Grava no banco de dados imediatamente (Locking)
+            session.run("""
+            MATCH (owner:Entity {id: $ownerId})
+            CREATE (p:Plot {
+                id: $id, startX: $startX, startZ: $startZ, 
+                width: $width, height: $height, status: "planned"
+            })
+            CREATE (owner)-[:OWNS]->(p)
+            """, ownerId=agent['id'], id=plot_id, startX=blueprint['startX'], 
+                 startZ=blueprint['startZ'], width=blueprint['width'], height=blueprint['height'])
+            
+            # Guarda a planta na memória do agente para ele saber o que construir
+            safe_memory['my_blueprint'] = blueprint
+            
+            events.append({"id": str(uuid.uuid4()), "level": "SUCCESS", "message": f"📜 {agent_name} obteve a escritura do terreno!", "timestamp": current_time})
+        
         elif action == "HARVEST":
             tile = tiles_map.get(target_id)
             if tile and tile['cropsJSON']:

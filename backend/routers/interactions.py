@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from database import driver
-from models import EntityModel, EntityUpdateModel, PositionUpdateModel, FarmerModel, RotationUpdateModel
+from models import EntityModel, EntityUpdateModel, PositionUpdateModel, FarmerModel, RotationUpdateModel, PlotModel
 
 # O prefixo organiza as URLs automaticamente
 router = APIRouter(prefix="/api/entities", tags=["Interactions"])
@@ -214,3 +214,54 @@ def update_entity_rotation(entity_id: str, rot_update: RotationUpdateModel):
 def create_wolf(wolf: FarmerModel):
     # O Lobo usa a mesma estrutura biológica (FarmerModel) pois tem HP, Fome e Estado
     return execute_agent_creation(wolf, 'wolf')
+
+@router.post("/plots/reserve")
+def reserve_plot(plot: PlotModel):
+    query = """
+    MATCH (owner:Entity {id: $ownerId})
+    CREATE (p:Plot {
+        id: $id, 
+        startX: $startX, 
+        startZ: $startZ, 
+        width: $width, 
+        height: $height, 
+        status: $status,
+        createdAt: datetime()
+    })
+    CREATE (owner)-[:OWNS]->(p)
+    RETURN p
+    """
+    try:
+        with driver.session() as session:
+            session.run(query, 
+                id=plot.id, ownerId=plot.ownerId,
+                startX=plot.startX, startZ=plot.startZ,
+                width=plot.width, height=plot.height,
+                status=plot.status
+            )
+        return {"message": "Espaço reservado com sucesso!"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+
+@router.get("/plots")
+def get_all_plots():
+    query = "MATCH (p:Plot) RETURN p"
+    plots = []
+    try:
+        with driver.session() as session:
+            result = session.run(query)
+            for record in result:
+                node = record["p"]
+                plots.append({
+                    "id": node["id"],
+                    "ownerId": "unknown", # Opcional, pode fazer MATCH (owner)-[:OWNS]->(p) depois
+                    "startX": node["startX"],
+                    "startZ": node["startZ"],
+                    "width": node["width"],
+                    "height": node["height"],
+                    "status": node["status"]
+                })
+        return plots
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

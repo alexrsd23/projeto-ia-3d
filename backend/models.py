@@ -39,3 +39,13 @@ class FarmerModel(EntityModel):
     inventoryJSON: Optional[str] = "{}"
     memoryJSON: Optional[str] = "{}"
     state: Optional[str] = "IDLE"
+    
+# Adicione ao models.py
+class PlotModel(BaseModel):
+    id: str
+    ownerId: str
+    startX: int
+    startZ: int
+    width: int
+    height: int
+    status: str = "planned" # planned, building, ready

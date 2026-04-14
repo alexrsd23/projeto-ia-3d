@@ -12,7 +12,6 @@ import HeatmapSystem from '../3d/environment/ground/HeatmapSystem';
 import CactusObstacle from '../3d/environment/CactusObstacle';
 import SpawnAreaVisualizer from '../3d/environment/SpawnAreaVisualizer';
 import RouteVisualizerSystem from '../3d/environment/RouteVisualizerSystem';
-import type { Entity, TileData } from '../../types';
 import Farmer from '../3d/Farmer';
 import Woodcutter from '../3d/Woodcutter';
 import Builder from '../3d/Builder';
@@ -25,6 +24,8 @@ import LootBag from '../3d/environment/LootBag'; import Wolf from '../3d/environ
 import DamagedFence from '../3d/environment/DamagedFence';
 import Gate from '../3d/environment/Gate';
 import { Html } from '@react-three/drei';
+import PlotVisualizer from '../3d/environment/ground/PlotVisualizer';
+import type { Entity, TileData, PlotData } from '../../types';
 
 interface RouteBounds {
   xMin: number; xMax: number; zMin: number; zMax: number;
@@ -43,6 +44,7 @@ interface Viewport3DProps {
   onMoveMoon: (pos: [number, number, number]) => void;
   isDay: boolean;
   tiles: TileData[];
+  plots: PlotData[]; // <--- NOVO
   selectedTileId: string | null;
   onSelectTile: (id: string) => void;
   heatmap: { gridX: number, gridZ: number, visits: number }[];
@@ -54,7 +56,7 @@ interface Viewport3DProps {
 }
 
 export default function Viewport3D({
-  entities, selectedEntityId, onSelectEntity, onDeselect, onMoveEntity, onRotateEntity,
+  entities, plots, selectedEntityId, onSelectEntity, onDeselect, onMoveEntity, onRotateEntity,
   sunPos, moonPos, onMoveSun, onMoveMoon, isDay, tiles, selectedTileId, onSelectTile, heatmap,
   isRouteTestingMode, routeBounds, analytics, showNames, isTerrainEditingMode
 }: Viewport3DProps) {
@@ -82,6 +84,9 @@ export default function Viewport3D({
           selectedTileId={selectedTileId} 
           onSelectTile={isTerrainEditingMode ? onSelectTile : () => {}} 
         />
+
+        {/* === NOVO: O VISUALIZADOR DE TERRENOS RESERVADOS === */}
+        <PlotVisualizer plots={plots} />
 
         {/* O Mapa de Calor Clássico */}
         <HeatmapSystem data={heatmap} maxVisits={maxVisits} />

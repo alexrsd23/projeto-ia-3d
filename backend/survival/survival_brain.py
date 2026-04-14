@@ -1,11 +1,13 @@
 import random
 import math
+import json
 from survival.inventory import InventorySystem
 from survival.perception import PerceptionSystem
 from survival.memory_system import SpatialMemory
 from survival.economy_system import EconomySystem
 from survival.biology import BiologySystem
 from survival.market_intelligence import MarketIntelligence
+from survival.farm_planner import FarmPlanner
 
 class SurvivalController:
     def __init__(self):
@@ -14,8 +16,9 @@ class SurvivalController:
         self.perception_sys = PerceptionSystem()
         self.memory_sys = SpatialMemory()
         self.agent_states = {} 
+        self.farm_planner = FarmPlanner()
 
-    def decide_next_move(self, agent, world_entities, world_tiles, current_tick, all_agents):
+    def decide_next_move(self, agent, world_entities, world_tiles, world_plots, current_tick, all_agents):
         agent_id = agent['id']
         agent_type = agent.get('type', 'farmer') 
         agent_pos = (agent['x'], agent['z'], agent_id) 
@@ -34,6 +37,25 @@ class SurvivalController:
         # Estruturas que se conectam visualmente (Cercas e Portões)
         connectable_types = {'fence', 'gate', 'damaged_fence'}
         connectable_coords = set()
+        
+        # === NOVO: BLOQUEIA ÁREAS RESERVADAS NO BANCO (EXCETO PARA O DONO) ===
+        for plot in world_plots:
+            # Se o agente atual é o dono deste terreno, NÃO o adiciona aos obstáculos!
+            if plot.get('ownerId') == agent_id:
+                continue 
+                
+            p_start_x = plot['startX']
+            p_start_z = plot['startZ']
+            p_width = plot['width']
+            p_height = plot['height']
+            
+            # Calcula a área inteira da fazenda reservada e marca como "Proibida"
+            p_max_x = p_start_x + (p_width - 1) * 2
+            p_max_z = p_start_z + (p_height - 1) * 2
+            
+            for x in range(p_start_x, p_max_x + 1, 2):
+                for z in range(p_start_z, p_max_z + 1, 2):
+                    blocked_coords.add((x, z))
         
         for e in world_entities:
             if e.get('x') is None or e.get('z') is None:
@@ -268,6 +290,17 @@ class SurvivalController:
                     
             elif agent_type == 'farmer' and self.inventory_sys.has_seeds(inv):
                 self.agent_states[agent_id] = "FARMER"
+                
+                # Se ele ainda não tem uma fazenda registrada no banco
+                if not agent.get('owns_plot'):
+                    blueprint = self.farm_planner.plan_new_farm(agent_pos, blocked_coords)
+                    if blueprint:
+                        # Emite a ordem para o Motor gravar no Neo4j
+                        log_msg = f"Reivindicou terreno em {blueprint['startX']}, {blueprint['startZ']}!"
+                        return ("RESERVE_PLOT", blueprint['startX'], blueprint['startZ'], blueprint, log_msg)
+                    else:
+                        return self._wander(agent_pos, blocked_coords, "Procurando terras livres para reivindicar.")
+                    
                 if radar_data.get('empty_farms'):
                     target = random.choice(radar_data['empty_farms'][:3])
                     if target['dist'] <= 3:

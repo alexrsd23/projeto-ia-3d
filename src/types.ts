@@ -48,3 +48,14 @@ export interface RouteAnalytics {
   consolidatedPaths: { x: number; z: number }[]; // NOVO
   lethalZones: { x: number; z: number }[];       // NOVO
 }
+
+// Adicione ao types.ts
+export interface PlotData {
+  id: string;
+  ownerId: string;
+  startX: number;
+  startZ: number;
+  width: number;
+  height: number;
+  status: 'planned' | 'building' | 'ready';
+}
