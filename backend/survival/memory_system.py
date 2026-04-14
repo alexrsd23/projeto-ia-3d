@@ -47,10 +47,29 @@ class SpatialMemory:
                 'last_seen': current_tick
             }
 
-        # 3. Memorizar Perigos
+        # 2. Memorizar Terras Aráveis (Para quando precisar de ser agricultor)
+        # CORREÇÃO: Iteramos as listas separadamente para gravar o 'type' exato
+        for item in radar_data.get('empty_farms', []):
+            coord = (item['x'], item['z'])
+            memory['farms'][coord] = {
+                'type': 'empty_farm',
+                'reliability': 1.0,
+                'last_seen': current_tick
+            }
+            
+        for item in radar_data.get('arable_land', []):
+            coord = (item['x'], item['z'])
+            memory['farms'][coord] = {
+                'type': 'grass',
+                'reliability': 1.0,
+                'last_seen': current_tick
+            }
+            
+        # 3. Memorizar Perigos Fixos (Cactos)
         for item in radar_data.get('hazards', []):
             coord = (item['x'], item['z'])
             memory['hazards'][coord] = {
+                'type': 'cactus',
                 'reliability': 1.0,
                 'last_seen': current_tick
             }

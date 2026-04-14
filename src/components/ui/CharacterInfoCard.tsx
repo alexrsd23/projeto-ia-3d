@@ -99,6 +99,27 @@ export default function CharacterInfoCard({ entity, onSaveIdentity }: CharacterI
       {/* === INVENTÁRIO DINÂMICO === */}
       <InventoryCard entityType={entity.type} inventoryJSON={entity.inventoryJSON} />
 
+      {/* === PAINEL DE MEMÓRIA (CORREÇÃO: Reintroduzido na UI) === */}
+      <div style={{ background: '#f8fafc', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+        <h4 style={{ fontSize: '12px', color: '#475569', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+          🧠 Livro de Memórias
+        </h4>
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+            <span style={{ color: '#d97706', fontSize: '16px', marginBottom: '2px' }}>🥔</span>
+            <span style={{ color: '#64748b', fontWeight: 600 }}>Comida: <span style={{ color: '#d97706' }}>{memory.foodCount}</span></span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+            <span style={{ color: '#10b981', fontSize: '16px', marginBottom: '2px' }}>🌾</span>
+            <span style={{ color: '#64748b', fontWeight: 600 }}>Terras: <span style={{ color: '#10b981' }}>{memory.farmCount}</span></span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+            <span style={{ color: '#ef4444', fontSize: '16px', marginBottom: '2px' }}>⚠️</span>
+            <span style={{ color: '#64748b', fontWeight: 600 }}>Perigos: <span style={{ color: '#ef4444' }}>{memory.hazardCount}</span></span>
+          </div>
+        </div>
+      </div>
+
       {/* PAINEL DE ATRIBUTOS SOCIAIS (O DNA Mental) */}
       <div style={{ background: '#f8fafc', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
         <h4 style={{ fontSize: '12px', color: '#475569', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
