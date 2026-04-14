@@ -291,43 +291,61 @@ class SurvivalController:
             elif agent_type == 'farmer' and self.inventory_sys.has_seeds(inv):
                 self.agent_states[agent_id] = "FARMER"
                 
-                # Se ele ainda não tem uma fazenda registrada no banco
+                # 1. PRIORIDADE LOCAL: Se há comida madura AO ALCANCE, colhe primeiro para limpar o terreno
+                if radar_data.get('food_ready'):
+                    target = radar_data['food_ready'][0]
+                    if target['dist'] <= 3:
+                        return ("HARVEST", agent_pos[0], agent_pos[1], target['tile_id'], "Limpando terreno: Colhendo batata madura.")
+
+                # 2. GESTÃO DE PROPRIEDADE: Se não tem terreno, tenta planejar um
                 if not agent.get('owns_plot'):
                     blueprint = self.farm_planner.plan_new_farm(agent_pos, blocked_coords)
-                    if blueprint:
-                        # Emite a ordem para o Motor gravar no Neo4j
-                        log_msg = f"Reivindicou terreno em {blueprint['startX']}, {blueprint['startZ']}!"
-                        return ("RESERVE_PLOT", blueprint['startX'], blueprint['startZ'], blueprint, log_msg)
-                    else:
-                        return self._wander(agent_pos, blocked_coords, "Procurando terras livres para reivindicar.")
                     
+                    if blueprint:
+                        # Lógica de Envelope: Verifica se batatas (prontas ou crescendo) estão no miolo
+                        all_food = radar_data.get('food_ready', []) + radar_data.get('food_growing', [])
+                        contains_wild_potato = False
+                        
+                        for food in all_food:
+                            # Converte para int para garantir match com a grade do blueprint
+                            f_coord = (int(food['x']), int(food['z']))
+                            if f_coord in [(int(n[0]), int(n[1])) for n in blueprint['arable_lands']]:
+                                contains_wild_potato = True
+                                break
+                        
+                        msg = "Sorte! Envelopou uma batata selvagem no novo terreno!" if contains_wild_potato else "Reivindicou terreno para nova fazenda!"
+                        return ("RESERVE_PLOT", blueprint['startX'], blueprint['startZ'], blueprint, msg)
+                    
+                    # Se não achou blueprint mas viu batata longe, vai buscar em vez de vagar
+                    if radar_data.get('food_ready'):
+                        target = radar_data['food_ready'][0]
+                        return self._move_towards(agent_pos, (target['x'], target['z']), blocked_coords, "Indo buscar batata para liberar espaço de plantio.")
+                    
+                    return self._wander(agent_pos, blocked_coords, "Procurando área livre para expandir.")
+
+                # 3. TRABALHO DE CAMPO: Se já tem terreno, executa o ciclo agrícola
+                # A) Plantar em terras já aradas
                 if radar_data.get('empty_farms'):
                     target = random.choice(radar_data['empty_farms'][:3])
                     if target['dist'] <= 3:
-                        return ("PLANT", agent_pos[0], agent_pos[1], target['id'], "Plantando sementes.")
-                    return self._move_towards(agent_pos, (target['x'], target['z']), blocked_coords, "Indo replantar em terra livre.")
+                        return ("PLANT", agent_pos[0], agent_pos[1], target['id'], "Plantando sementes no meu terreno.")
+                    return self._move_towards(agent_pos, (target['x'], target['z']), blocked_coords, "Indo até área arada para plantar.")
                 
+                # B) Consultar memória de terras aradas (Anti-camping)
                 farm_mem = self.memory_sys.get_best_farm_location(agent_id, agent_pos)
                 if farm_mem:
                     dist = math.hypot(farm_mem[0] - agent_pos[0], farm_mem[1] - agent_pos[1])
                     if dist <= 3:
                         self.memory_sys.invalidate_farm_memory(agent_id, farm_mem)
-                        return self._wander(agent_pos, blocked_coords, "Conflito de espaço: Terra lotada. Memória apagada.")
-                    return self._move_towards(agent_pos, farm_mem, blocked_coords, "Deslocando para terra previamente arada.")
+                        return self._wander(agent_pos, blocked_coords, "Espaço de memória ocupado. Recalculando...")
+                    return self._move_towards(agent_pos, farm_mem, blocked_coords, "Movendo para local arado memorizado.")
                     
+                # C) Arar novas terras (Grama)
                 if radar_data.get('arable_land'):
                     target = random.choice(radar_data['arable_land'][:3])
                     if target['dist'] <= 3:
-                        return ("PLOW", agent_pos[0], agent_pos[1], target['id'], "Arando solo virgem.")
-                    return self._move_towards(agent_pos, (target['x'], target['z']), blocked_coords, "Buscando terreno virgem para arar.")
-                
-
-        # PRIORIDADE 3: Colecionador
-        if needs_stock and radar_data.get('food_ready'):
-            target = radar_data['food_ready'][0] 
-            if target['dist'] <= 3:
-                self.agent_states[agent_id] = "STOCKPILING"
-                return ("HARVEST", agent_pos[0], agent_pos[1], target['tile_id'], "Estocagem preventiva.")
+                        return ("PLOW", agent_pos[0], agent_pos[1], target['id'], "Arando solo para expandir plantação.")
+                    return self._move_towards(agent_pos, (target['x'], target['z']), blocked_coords, "Buscando terreno para arar.")
 
         # PRIORIDADE 4: Exploração
         self.agent_states[agent_id] = "EXPLORE"

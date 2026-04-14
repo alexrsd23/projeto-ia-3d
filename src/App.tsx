@@ -342,7 +342,38 @@ export default function App() {
           body: JSON.stringify(newEntity),
         })
       );
-    }
+
+      // === A MACRO DA INTERFACE (Simula Arar e Plantar 2x) ===
+      if (type === 'farmer') {
+        // Encontra a grama disponível usando a variável 'tiles' do próprio React
+        const emptyGrassTiles = tiles.filter(t => t.type === 'grass' && t.crops.length === 0);
+        
+        if (emptyGrassTiles.length > 0) {
+          const randomIndex = Math.floor(Math.random() * emptyGrassTiles.length);
+          const chosenTile = emptyGrassTiles[randomIndex];
+
+          // Constrói o bloco exatamente como as funções handlePlowTile e handlePlantCrop fariam
+          const updatedTile: TileData = { 
+            ...chosenTile, 
+            type: 'farm', // Simula o clique em "Arar"
+            crops: [
+              // Simula o 1º clique em "Plantar" (estágio 0, offset -0.5)
+              { id: crypto.randomUUID(), type: 'potato', stage: 0, positionOffset: [-0.5, -0.5] },
+              // Simula o 2º clique em "Plantar" (estágio 0, offset 0.5)
+              { id: crypto.randomUUID(), type: 'potato', stage: 0, positionOffset: [0.5, 0.5] }
+            ]
+          };
+
+          // 1. Envia para a API exatamente através da mesma função usada pelo Dashboard
+          saveTileToDatabase(updatedTile);
+
+          // 2. Atualiza a tela 3D instantaneamente
+          setTiles(prevTiles => prevTiles.map(t => t.id === chosenTile.id ? updatedTile : t));
+        }
+      }
+      // ========================================================
+
+    } // <--- Fim do for loop
 
     setEntities((prev) => [...prev, ...newEntities]);
 

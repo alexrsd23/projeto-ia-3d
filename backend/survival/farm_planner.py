@@ -25,16 +25,13 @@ class FarmPlanner:
         for r in range(0, search_radius + 1, self.GRID_STEP):
             for dx in range(-r, r + 1, self.GRID_STEP):
                 for dz in range(-r, r + 1, self.GRID_STEP):
-                    # Testa o ponto inicial (canto superior esquerdo do lote)
-                    start_x = agent_pos[0] + dx
-                    start_z = agent_pos[1] + dz
+                    # FORÇAR INTEIRO AQUI
+                    start_x = int(agent_pos[0] + dx)
+                    start_z = int(agent_pos[1] + dz)
                     
                     for width_nodes, height_nodes in orientations:
                         if self._is_area_clear(start_x, start_z, width_nodes, height_nodes, blocked_coords):
-                            # Se a área está livre, gera a planta da fazenda!
                             return self._generate_plot_blueprint(start_x, start_z, width_nodes, height_nodes)
-                            
-        return None # Não há espaço suficiente por perto
 
     def _is_area_clear(self, start_x, start_z, width_nodes, height_nodes, blocked_coords):
         """
@@ -42,20 +39,18 @@ class FarmPlanner:
         Verifica se o retângulo inteiro (incluindo o interior) não ultrapassa as bordas do mundo
         e não colide com árvores, cactos ou cercas de outras pessoas.
         """
-        max_x = start_x + (width_nodes - 1) * self.GRID_STEP
-        max_z = start_z + (height_nodes - 1) * self.GRID_STEP
+        max_x = int(start_x + (width_nodes - 1) * self.GRID_STEP)
+        max_z = int(start_z + (height_nodes - 1) * self.GRID_STEP)
         
         # 1. Verifica os limites do mundo (não pode construir fora da malha)
         if start_x < self.MIN_COORD or max_x > self.MAX_COORD: return False
         if start_z < self.MIN_COORD or max_z > self.MAX_COORD: return False
         
         # 2. Verifica todos os nós dentro dessa área
-        for x in range(start_x, max_x + 1, self.GRID_STEP):
-            for z in range(start_z, max_z + 1, self.GRID_STEP):
-                # Se QUALQUER ponto dentro do 4x6 tiver um obstáculo, o terreno é rejeitado
+        for x in range(int(start_x), max_x + 1, self.GRID_STEP):
+            for z in range(int(start_z), max_z + 1, self.GRID_STEP):
                 if (x, z) in blocked_coords:
                     return False
-                    
         return True
 
     def _generate_plot_blueprint(self, start_x, start_z, width_nodes, height_nodes):
