@@ -9,55 +9,47 @@ class FarmPlanner:
         self.MIN_COORD = -24
         self.MAX_COORD = 24
 
-    def plan_new_farm(self, agent_pos, blocked_coords):
-        """
-        Função Principal: O Fazendeiro chama esta função quando quer criar uma fazenda.
-        Ela faz uma varredura em espiral ao redor do fazendeiro procurando um terreno 4x6 ou 6x4.
-        Retorna o dicionário "Blueprint" se encontrar espaço, ou None se o mapa estiver lotado.
-        """
-        # Define as duas orientações possíveis (Horizontal e Vertical)
+    def plan_new_farm(self, agent_pos, blocked_coords, crop_coords=None):
+        if crop_coords is None:
+            crop_coords = set()
+            
         orientations = [(4, 6), (6, 4)]
         random.shuffle(orientations)
         
-        # Faz uma busca em espiral (busca primeiro perto, depois vai alargando)
-        search_radius = 16 # Busca num raio de até 16 blocos
+        search_radius = 16 
         
         for r in range(0, search_radius + 1, self.GRID_STEP):
             for dx in range(-r, r + 1, self.GRID_STEP):
                 for dz in range(-r, r + 1, self.GRID_STEP):
-                    # FORÇAR INTEIRO AQUI
                     start_x = int(agent_pos[0] + dx)
                     start_z = int(agent_pos[1] + dz)
                     
                     for width_nodes, height_nodes in orientations:
-                        if self._is_area_clear(start_x, start_z, width_nodes, height_nodes, blocked_coords):
+                        if self._is_area_clear(start_x, start_z, width_nodes, height_nodes, blocked_coords, crop_coords):
                             return self._generate_plot_blueprint(start_x, start_z, width_nodes, height_nodes)
+        return None
 
-    def _is_area_clear(self, start_x, start_z, width_nodes, height_nodes, blocked_coords):
-        """
-        Sub-função de Validação:
-        Verifica se o retângulo inteiro (incluindo o interior) não ultrapassa as bordas do mundo
-        e não colide com árvores, cactos ou cercas de outras pessoas.
-        """
+    def _is_area_clear(self, start_x, start_z, width_nodes, height_nodes, blocked_coords, crop_coords):
         max_x = int(start_x + (width_nodes - 1) * self.GRID_STEP)
         max_z = int(start_z + (height_nodes - 1) * self.GRID_STEP)
         
-        # 1. Verifica os limites do mundo (não pode construir fora da malha)
         if start_x < self.MIN_COORD or max_x > self.MAX_COORD: return False
         if start_z < self.MIN_COORD or max_z > self.MAX_COORD: return False
         
-        # 2. Verifica todos os nós dentro dessa área
         for x in range(int(start_x), max_x + 1, self.GRID_STEP):
             for z in range(int(start_z), max_z + 1, self.GRID_STEP):
+                # 1. Bateu numa parede ou árvore? Cancela.
                 if (x, z) in blocked_coords:
                     return False
+                
+                # 2. A REGRA DE OURO DA BATATA: A linha azul NUNCA pode esmagar uma planta!
+                is_perimeter = (x == start_x or x == max_x or z == start_z or z == max_z)
+                if is_perimeter and (x, z) in crop_coords:
+                    return False
+                    
         return True
 
     def _generate_plot_blueprint(self, start_x, start_z, width_nodes, height_nodes):
-        """
-        Sub-função Arquiteta:
-        Separa matematicamente o perímetro do interior e formata para o Banco de Dados.
-        """
         max_x = start_x + (width_nodes - 1) * self.GRID_STEP
         max_z = start_z + (height_nodes - 1) * self.GRID_STEP
         
@@ -78,7 +70,6 @@ class FarmPlanner:
         
         fences_pos = [p for p in perimeter_nodes if p != gate_pos]
         
-        # === A ALTERAÇÃO ESTÁ AQUI: Formato compatível com o PlotModel ===
         return {
             "startX": start_x,
             "startZ": start_z,

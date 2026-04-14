@@ -299,24 +299,34 @@ class SurvivalController:
 
                 # 2. GESTÃO DE PROPRIEDADE: Se não tem terreno, tenta planejar um
                 if not agent.get('owns_plot'):
-                    blueprint = self.farm_planner.plan_new_farm(agent_pos, blocked_coords)
+                    
+                    # === NOVO: Varredura SATÉLITE (À prova de falhas do radar) ===
+                    # Extraímos diretamente do mapa do mundo todas as coordenadas que possuem plantas
+                    global_crop_coords = set()
+                    for t in world_tiles:
+                        if t.get('cropsJSON'):
+                            try:
+                                crops = json.loads(t['cropsJSON'])
+                                if len(crops) > 0:
+                                    global_crop_coords.add((int(t['x']), int(t['z'])))
+                            except:
+                                pass
+                    
+                    # Passamos a lista global para o arquiteto garantir que as bordas fiquem limpas
+                    blueprint = self.farm_planner.plan_new_farm(agent_pos, blocked_coords, global_crop_coords)
                     
                     if blueprint:
-                        # Lógica de Envelope: Verifica se batatas (prontas ou crescendo) estão no miolo
-                        all_food = radar_data.get('food_ready', []) + radar_data.get('food_growing', [])
+                        # Lógica de Envelope: Verifica se batatas caíram no miolo amarelo
                         contains_wild_potato = False
-                        
-                        for food in all_food:
-                            # Converte para int para garantir match com a grade do blueprint
-                            f_coord = (int(food['x']), int(food['z']))
-                            if f_coord in [(int(n[0]), int(n[1])) for n in blueprint['arable_lands']]:
+                        for cx, cz in global_crop_coords:
+                            if (cx, cz) in [(int(n[0]), int(n[1])) for n in blueprint['arable_lands']]:
                                 contains_wild_potato = True
                                 break
                         
                         msg = "Sorte! Envelopou uma batata selvagem no novo terreno!" if contains_wild_potato else "Reivindicou terreno para nova fazenda!"
                         return ("RESERVE_PLOT", blueprint['startX'], blueprint['startZ'], blueprint, msg)
                     
-                    # Se não achou blueprint mas viu batata longe, vai buscar em vez de vagar
+                    # Se não achou blueprint mas viu batata longe no radar, vai buscar
                     if radar_data.get('food_ready'):
                         target = radar_data['food_ready'][0]
                         return self._move_towards(agent_pos, (target['x'], target['z']), blocked_coords, "Indo buscar batata para liberar espaço de plantio.")
@@ -324,25 +334,46 @@ class SurvivalController:
                     return self._wander(agent_pos, blocked_coords, "Procurando área livre para expandir.")
 
                 # 3. TRABALHO DE CAMPO: Se já tem terreno, executa o ciclo agrícola
-                # A) Plantar em terras já aradas
-                if radar_data.get('empty_farms'):
-                    target = random.choice(radar_data['empty_farms'][:3])
+                
+                # === NOVA LÓGICA MAS: O Agente calcula o miolo do seu próprio terreno ===
+                my_plot = next((p for p in world_plots if p.get('ownerId') == agent_id), None)
+                my_interior_coords = set()
+                
+                if my_plot:
+                    p_start_x = my_plot['startX']
+                    p_start_z = my_plot['startZ']
+                    # Calcula o limite máximo do lote
+                    p_max_x = p_start_x + (my_plot['width'] - 1) * 2
+                    p_max_z = p_start_z + (my_plot['height'] - 1) * 2
+                    
+                    # Gera a matriz apenas do interior (amarelo), ignorando as bordas (azul)
+                    for x in range(p_start_x + 2, p_max_x, 2):
+                        for z in range(p_start_z + 2, p_max_z, 2):
+                            my_interior_coords.add((x, z))
+
+                # Filtra a visão do agente para agir APENAS se a terra estiver dentro do miolo
+                valid_empty_farms = [f for f in radar_data.get('empty_farms', []) if (int(f['x']), int(f['z'])) in my_interior_coords]
+                valid_arable_land = [f for f in radar_data.get('arable_land', []) if (int(f['x']), int(f['z'])) in my_interior_coords]
+
+                # A) Plantar em terras já aradas (Filtrado)
+                if valid_empty_farms:
+                    target = random.choice(valid_empty_farms[:3])
                     if target['dist'] <= 3:
                         return ("PLANT", agent_pos[0], agent_pos[1], target['id'], "Plantando sementes no meu terreno.")
                     return self._move_towards(agent_pos, (target['x'], target['z']), blocked_coords, "Indo até área arada para plantar.")
                 
-                # B) Consultar memória de terras aradas (Anti-camping)
+                # B) Consultar memória de terras aradas (Blindado contra memórias fora do lote)
                 farm_mem = self.memory_sys.get_best_farm_location(agent_id, agent_pos)
-                if farm_mem:
+                if farm_mem and (int(farm_mem[0]), int(farm_mem[1])) in my_interior_coords:
                     dist = math.hypot(farm_mem[0] - agent_pos[0], farm_mem[1] - agent_pos[1])
                     if dist <= 3:
                         self.memory_sys.invalidate_farm_memory(agent_id, farm_mem)
                         return self._wander(agent_pos, blocked_coords, "Espaço de memória ocupado. Recalculando...")
                     return self._move_towards(agent_pos, farm_mem, blocked_coords, "Movendo para local arado memorizado.")
                     
-                # C) Arar novas terras (Grama)
-                if radar_data.get('arable_land'):
-                    target = random.choice(radar_data['arable_land'][:3])
+                # C) Arar novas terras (Filtrado)
+                if valid_arable_land:
+                    target = random.choice(valid_arable_land[:3])
                     if target['dist'] <= 3:
                         return ("PLOW", agent_pos[0], agent_pos[1], target['id'], "Arando solo para expandir plantação.")
                     return self._move_towards(agent_pos, (target['x'], target['z']), blocked_coords, "Buscando terreno para arar.")
