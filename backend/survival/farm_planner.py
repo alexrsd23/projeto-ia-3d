@@ -9,9 +9,12 @@ class FarmPlanner:
         self.MIN_COORD = -24
         self.MAX_COORD = 24
 
-    def plan_new_farm(self, agent_pos, blocked_coords, crop_coords=None):
+    # === ALTERAÇÃO 1: Adicionado o parâmetro restricted_plot_coords ===
+    def plan_new_farm(self, agent_pos, blocked_coords, crop_coords=None, restricted_plot_coords=None):
         if crop_coords is None:
             crop_coords = set()
+        if restricted_plot_coords is None:
+            restricted_plot_coords = set()
             
         orientations = [(4, 6), (6, 4)]
         random.shuffle(orientations)
@@ -21,15 +24,19 @@ class FarmPlanner:
         for r in range(0, search_radius + 1, self.GRID_STEP):
             for dx in range(-r, r + 1, self.GRID_STEP):
                 for dz in range(-r, r + 1, self.GRID_STEP):
-                    start_x = int(agent_pos[0] + dx)
-                    start_z = int(agent_pos[1] + dz)
+                    # === CORREÇÃO CRÍTICA 1: Snap to Grid ===
+                    # Força o número a ser arredondado para o múltiplo de GRID_STEP (2) mais próximo.
+                    # Garante que as bordas nunca fiquem em coordenadas ímpares desalinhadas.
+                    start_x = round((agent_pos[0] + dx) / self.GRID_STEP) * self.GRID_STEP
+                    start_z = round((agent_pos[1] + dz) / self.GRID_STEP) * self.GRID_STEP
                     
                     for width_nodes, height_nodes in orientations:
-                        if self._is_area_clear(start_x, start_z, width_nodes, height_nodes, blocked_coords, crop_coords):
-                            return self._generate_plot_blueprint(start_x, start_z, width_nodes, height_nodes)
+                        if self._is_area_clear(int(start_x), int(start_z), width_nodes, height_nodes, blocked_coords, crop_coords, restricted_plot_coords):
+                            return self._generate_plot_blueprint(int(start_x), int(start_z), width_nodes, height_nodes)
         return None
 
-    def _is_area_clear(self, start_x, start_z, width_nodes, height_nodes, blocked_coords, crop_coords):
+    # === ALTERAÇÃO 2: Aplicando a Lei de Zoneamento ===
+    def _is_area_clear(self, start_x, start_z, width_nodes, height_nodes, blocked_coords, crop_coords, restricted_plot_coords):
         max_x = int(start_x + (width_nodes - 1) * self.GRID_STEP)
         max_z = int(start_z + (height_nodes - 1) * self.GRID_STEP)
         
@@ -38,11 +45,15 @@ class FarmPlanner:
         
         for x in range(int(start_x), max_x + 1, self.GRID_STEP):
             for z in range(int(start_z), max_z + 1, self.GRID_STEP):
-                # 1. Bateu numa parede ou árvore? Cancela.
+                # 1. Bateu numa parede, árvore ou limite da fazenda vizinha? Cancela.
                 if (x, z) in blocked_coords:
                     return False
                 
-                # 2. A REGRA DE OURO DA BATATA: A linha azul NUNCA pode esmagar uma planta!
+                # 2. NOVO: Bateu na MARGEM DE SEGURANÇA de outro terreno? Cancela.
+                if (x, z) in restricted_plot_coords:
+                    return False
+                
+                # 3. A REGRA DE OURO DA BATATA: A linha azul NUNCA pode esmagar uma planta!
                 is_perimeter = (x == start_x or x == max_x or z == start_z or z == max_z)
                 if is_perimeter and (x, z) in crop_coords:
                     return False

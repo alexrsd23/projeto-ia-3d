@@ -300,38 +300,55 @@ class SurvivalController:
                 # 2. GESTÃO DE PROPRIEDADE: Se não tem terreno, tenta planejar um
                 if not agent.get('owns_plot'):
                     
-                    # === NOVO: Varredura SATÉLITE (À prova de falhas do radar) ===
-                    # Extraímos diretamente do mapa do mundo todas as coordenadas que possuem plantas
-                    global_crop_coords = set()
+                    # === NOVO: LEI DE ZONEAMENTO (Margem de Segurança) ===
+                    # Calcula uma "zona invisível" de 1 bloco (+2 metros) ao redor de cada terreno
+                    restricted_plot_coords = set()
+                    for p in world_plots:
+                        p_start_x = p['startX']
+                        p_start_z = p['startZ']
+                        p_max_x = p_start_x + (p['width'] - 1) * 2
+                        p_max_z = p_start_z + (p['height'] - 1) * 2
+                        
+                        # O range vai do (início - 2) até (fim + 2). O +3 é porque o Python ignora o último número.
+                        for x in range(p_start_x - 2, p_max_x + 3, 2):
+                            for z in range(p_start_z - 2, p_max_z + 3, 2):
+                                restricted_plot_coords.add((x, z))
+                    
+                   # === NOVO: Varredura SATÉLITE Completa ===
+                    sacred_coords = set()
                     for t in world_tiles:
+                        # 1. Protege terras que já foram aradas (mesmo sem batatas)
+                        if t.get('type') == 'farm':
+                            sacred_coords.add((int(t['x']), int(t['z'])))
+                            continue
+                            
+                        # 2. Protege grama com batatas selvagens
                         if t.get('cropsJSON'):
                             try:
                                 crops = json.loads(t['cropsJSON'])
                                 if len(crops) > 0:
-                                    global_crop_coords.add((int(t['x']), int(t['z'])))
+                                    sacred_coords.add((int(t['x']), int(t['z'])))
                             except:
                                 pass
                     
-                    # Passamos a lista global para o arquiteto garantir que as bordas fiquem limpas
-                    blueprint = self.farm_planner.plan_new_farm(agent_pos, blocked_coords, global_crop_coords)
+                    # Passamos TUDO para o arquiteto: obstáculos, terras aradas/plantadas e recuo!
+                    blueprint = self.farm_planner.plan_new_farm(agent_pos, blocked_coords, sacred_coords, restricted_plot_coords)
                     
                     if blueprint:
-                        # Lógica de Envelope: Verifica se batatas caíram no miolo amarelo
                         contains_wild_potato = False
-                        for cx, cz in global_crop_coords:
+                        for cx, cz in sacred_coords:
                             if (cx, cz) in [(int(n[0]), int(n[1])) for n in blueprint['arable_lands']]:
                                 contains_wild_potato = True
                                 break
                         
-                        msg = "Sorte! Envelopou uma batata selvagem no novo terreno!" if contains_wild_potato else "Reivindicou terreno para nova fazenda!"
+                        msg = "Sorte! Envelopou terra fértil no novo terreno!" if contains_wild_potato else "Reivindicou terreno para nova fazenda!"
                         return ("RESERVE_PLOT", blueprint['startX'], blueprint['startZ'], blueprint, msg)
                     
-                    # Se não achou blueprint mas viu batata longe no radar, vai buscar
                     if radar_data.get('food_ready'):
                         target = radar_data['food_ready'][0]
                         return self._move_towards(agent_pos, (target['x'], target['z']), blocked_coords, "Indo buscar batata para liberar espaço de plantio.")
                     
-                    return self._wander(agent_pos, blocked_coords, "Procurando área livre para expandir.")
+                    return self._wander(agent_pos, blocked_coords, "Procurando área livre (com recuo) para expandir.")
 
                 # 3. TRABALHO DE CAMPO: Se já tem terreno, executa o ciclo agrícola
                 

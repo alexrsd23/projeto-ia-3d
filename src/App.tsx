@@ -345,16 +345,32 @@ export default function App() {
 
       // === A MACRO DA INTERFACE (Simula Arar e Plantar 2x) ===
       if (type === 'farmer') {
-        // Encontra a grama disponível usando a variável 'tiles' do próprio React
-        const emptyGrassTiles = tiles.filter(t => t.type === 'grass' && t.crops.length === 0);
-        
+
+        // NOVO: A Interface agora respeita a lei de terras dos agentes
+        const emptyGrassTiles = tiles.filter(t => {
+          // Tem que ser grama pura e sem plantações
+          if (t.type !== 'grass' || t.crops.length > 0) return false;
+
+          // VERIFICAÇÃO CRÍTICA: O bloco de grama está dentro do lote de alguém?
+          const isInsideAnyPlot = plots.some(p => {
+            const pMaxX = p.startX + (p.width - 1) * 2;
+            const pMaxZ = p.startZ + (p.height - 1) * 2;
+            // Checa se o X e Z caem dentro da área inteira do terreno (incluindo bordas)
+            return t.gridX >= p.startX && t.gridX <= pMaxX &&
+              t.gridZ >= p.startZ && t.gridZ <= pMaxZ;
+          });
+
+          // Só retorna true se a grama for "terra de ninguém"
+          return !isInsideAnyPlot;
+        });
+
         if (emptyGrassTiles.length > 0) {
           const randomIndex = Math.floor(Math.random() * emptyGrassTiles.length);
           const chosenTile = emptyGrassTiles[randomIndex];
 
           // Constrói o bloco exatamente como as funções handlePlowTile e handlePlantCrop fariam
-          const updatedTile: TileData = { 
-            ...chosenTile, 
+          const updatedTile: TileData = {
+            ...chosenTile,
             type: 'farm', // Simula o clique em "Arar"
             crops: [
               // Simula o 1º clique em "Plantar" (estágio 0, offset -0.5)

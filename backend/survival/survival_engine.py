@@ -355,6 +355,19 @@ def process_survival_tick(survival_brain, session):
             # Guarda a planta na memória do agente para ele saber o que construir
             safe_memory['my_blueprint'] = blueprint
             
+            # === CORREÇÃO CRÍTICA 2: Sincronização Intra-Tick ===
+            # Atualiza a lista em memória imediatamente para que os próximos agentes processados 
+            # neste MESMO tick vejam o terreno e respeitem a restrição do perímetro.
+            world_plots.append({
+                "id": plot_id,
+                "ownerId": agent['id'],
+                "startX": blueprint['startX'],
+                "startZ": blueprint['startZ'],
+                "width": blueprint['width'],
+                "height": blueprint['height'],
+                "status": "planned"
+            })
+            
             events.append({"id": str(uuid.uuid4()), "level": "SUCCESS", "message": f"📜 {agent_name} obteve a escritura do terreno!", "timestamp": current_time})
         
         elif action == "HARVEST":
