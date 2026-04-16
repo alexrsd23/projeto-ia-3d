@@ -371,7 +371,8 @@ def process_survival_tick(survival_brain, session):
             events.append({"id": str(uuid.uuid4()), "level": "SUCCESS", "message": f"📜 {agent_name} obteve a escritura do terreno!", "timestamp": current_time})
         
         elif action == "HARVEST":
-            tile = tiles_map.get(target_id)
+            t_id = target_id["id"] if isinstance(target_id, dict) else target_id
+            tile = tiles_map.get(t_id)
             if tile and tile['cropsJSON']:
                 crops = json.loads(tile['cropsJSON'])
                 mature_crops = [c for c in crops if c['stage'] == 2]
@@ -389,20 +390,29 @@ def process_survival_tick(survival_brain, session):
                     updates_tiles.append(tile)
 
         elif action == "PLOW":
-            tile = tiles_map.get(target_id)
-            if tile:
-                tile['type'] = 'farm'
+            t_id = target_id["id"] if isinstance(target_id, dict) else target_id
+            tile = tiles_map.get(t_id)
+            if not tile:
+                # O segredo: Cria o bloco na memória da engine para ele ser salvo no Neo4j a seguir!
+                tx, tz = target_id["x"], target_id["z"]
+                tile = {"id": t_id, "x": tx, "z": tz, "type": "grass", "cropsJSON": "[]"}
+                tiles_map[t_id] = tile
+
+            tile['type'] = 'farm'
+            if tile not in updates_tiles:
                 updates_tiles.append(tile)
 
         elif action == "PLANT":
-            tile = tiles_map.get(target_id)
+            t_id = target_id["id"] if isinstance(target_id, dict) else target_id
+            tile = tiles_map.get(t_id)
             if tile and survival_brain.inventory_sys.consume_seed(inv):
                 crops = json.loads(tile['cropsJSON']) if tile.get('cropsJSON') else []
                 if len(crops) < 2:
                     offset = [-0.5, -0.5] if len(crops) == 0 else [0.5, 0.5]
                     crops.append({"id": str(uuid.uuid4()), "type": "potato", "stage": 0, "positionOffset": offset})
                     tile['cropsJSON'] = json.dumps(crops)
-                    updates_tiles.append(tile)
+                    if tile not in updates_tiles:
+                        updates_tiles.append(tile)
                     
         elif action == "LOOT":
             target_entity = next((e for e in world_entities if e['id'] == target_id), None)
@@ -662,8 +672,11 @@ def process_survival_tick(survival_brain, session):
     if updates_tiles:
         session.run("""
         UNWIND $updates AS up
-        MATCH (t:Tile {id: up.id})
-        SET t.cropsJSON = up.cropsJSON
+        MERGE (t:Tile {id: up.id})
+        SET t.gridX = up.x, 
+            t.gridZ = up.z, 
+            t.type = up.type, 
+            t.cropsJSON = coalesce(up.cropsJSON, '[]')
         """, updates=updates_tiles)
         
     # =====================================================================

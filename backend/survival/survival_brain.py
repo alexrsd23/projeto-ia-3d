@@ -350,52 +350,73 @@ class SurvivalController:
                     
                     return self._wander(agent_pos, blocked_coords, "Procurando área livre (com recuo) para expandir.")
 
-                # 3. TRABALHO DE CAMPO: Se já tem terreno, executa o ciclo agrícola
-                
-                # === NOVA LÓGICA MAS: O Agente calcula o miolo do seu próprio terreno ===
+                # 3. TRABALHO DE CAMPO: O Agente calcula o miolo do seu próprio terreno
                 my_plot = next((p for p in world_plots if p.get('ownerId') == agent_id), None)
-                my_interior_coords = set()
                 
                 if my_plot:
                     p_start_x = my_plot['startX']
                     p_start_z = my_plot['startZ']
-                    # Calcula o limite máximo do lote
                     p_max_x = p_start_x + (my_plot['width'] - 1) * 2
                     p_max_z = p_start_z + (my_plot['height'] - 1) * 2
                     
-                    # Gera a matriz apenas do interior (amarelo), ignorando as bordas (azul)
+                    my_interior_coords = set()
                     for x in range(p_start_x + 2, p_max_x, 2):
                         for z in range(p_start_z + 2, p_max_z, 2):
                             my_interior_coords.add((x, z))
 
-                # Filtra a visão do agente para agir APENAS se a terra estiver dentro do miolo
-                valid_empty_farms = [f for f in radar_data.get('empty_farms', []) if (int(f['x']), int(f['z'])) in my_interior_coords]
-                valid_arable_land = [f for f in radar_data.get('arable_land', []) if (int(f['x']), int(f['z'])) in my_interior_coords]
-
-                # A) Plantar em terras já aradas (Filtrado)
-                if valid_empty_farms:
-                    target = random.choice(valid_empty_farms[:3])
-                    if target['dist'] <= 3:
-                        return ("PLANT", agent_pos[0], agent_pos[1], target['id'], "Plantando sementes no meu terreno.")
-                    return self._move_towards(agent_pos, (target['x'], target['z']), blocked_coords, "Indo até área arada para plantar.")
-                
-                # B) Consultar memória de terras aradas (Blindado contra memórias fora do lote)
-                farm_mem = self.memory_sys.get_best_farm_location(agent_id, agent_pos)
-                if farm_mem and (int(farm_mem[0]), int(farm_mem[1])) in my_interior_coords:
-                    dist = math.hypot(farm_mem[0] - agent_pos[0], farm_mem[1] - agent_pos[1])
-                    if dist <= 3:
-                        self.memory_sys.invalidate_farm_memory(agent_id, farm_mem)
-                        return self._wander(agent_pos, blocked_coords, "Espaço de memória ocupado. Recalculando...")
-                    return self._move_towards(agent_pos, farm_mem, blocked_coords, "Movendo para local arado memorizado.")
+                    # Classifica as terras usando a visão absoluta do mundo
+                    tiles_dict = {(int(t['x']), int(t['z'])): t for t in world_tiles if t.get('x') is not None}
                     
-                # C) Arar novas terras (Filtrado)
-                if valid_arable_land:
-                    target = random.choice(valid_arable_land[:3])
-                    if target['dist'] <= 3:
-                        return ("PLOW", agent_pos[0], agent_pos[1], target['id'], "Arando solo para expandir plantação.")
-                    return self._move_towards(agent_pos, (target['x'], target['z']), blocked_coords, "Buscando terreno para arar.")
+                    needs_planting = []
+                    needs_plowing = []
+                    
+                    for coord in my_interior_coords:
+                        tile = tiles_dict.get(coord)
+                        if tile and tile.get('type') == 'farm':
+                            crops = []
+                            if tile.get('cropsJSON'):
+                                try:
+                                    crops = json.loads(tile['cropsJSON'])
+                                except:
+                                    pass
+                            if len(crops) < 2:
+                                needs_planting.append((coord[0], coord[1], tile['id']))
+                        else:
+                            # A terra é virgem (não está no DB) ou ainda é 'grass'
+                            tile_id = tile['id'] if tile else f"tile-{coord[0]}-{coord[1]}"
+                            needs_plowing.append((coord[0], coord[1], tile_id))
+                            
+                    # === EXECUTA A LISTA DE TAREFAS (Ordem de Prioridade) ===
+                    if needs_planting:
+                        needs_planting.sort(key=lambda c: math.hypot(c[0]-agent_pos[0], c[1]-agent_pos[1]))
+                        target = needs_planting[0]
+                        dist = math.hypot(target[0]-agent_pos[0], target[1]-agent_pos[1])
+                        if dist <= 3.0:
+                            return ("PLANT", agent_pos[0], agent_pos[1], {"id": target[2], "x": target[0], "z": target[1]}, "Semeando batata no meu terreno.")
+                        return self._move_towards(agent_pos, (target[0], target[1]), blocked_coords, "Indo para área arada para plantar.")
+                        
+                    elif needs_plowing:
+                        needs_plowing.sort(key=lambda c: math.hypot(c[0]-agent_pos[0], c[1]-agent_pos[1]))
+                        target = needs_plowing[0]
+                        dist = math.hypot(target[0]-agent_pos[0], target[1]-agent_pos[1])
+                        if dist <= 3.0:
+                            return ("PLOW", agent_pos[0], agent_pos[1], {"id": target[2], "x": target[0], "z": target[1]}, "Arando solo virgem para expandir plantação.")
+                        return self._move_towards(agent_pos, (target[0], target[1]), blocked_coords, "Buscando terreno interno para arar.")
+                    else:
+                        # === LIBERDADE ===
+                        # Se não precisa arar nem plantar, a fazenda está 100% pronta!
+                        self.agent_states[agent_id] = "EXPLORE"
+                        return self._wander(agent_pos, blocked_coords, "Minha fazenda está toda plantada! Explorando o mundo livremente.")
+                        
+            # Fim do bloco "if is_comfortable:" e das profissões
 
-        # PRIORIDADE 4: Exploração
+        # =========================================================
+        # PRIORIDADE 4: Exploração (O FALLBACK GLOBAL)
+        # =========================================================
+        # ATENÇÃO À INDENTAÇÃO AQUI! 
+        # Este bloco captura todos os agentes que não têm profissão ou não têm
+        # condições de trabalhar (ex: falta de sementes), garantindo que
+        # NUNHUM agente saia desta função sem retornar uma ação.
         self.agent_states[agent_id] = "EXPLORE"
         return self._wander(agent_pos, blocked_coords, None)
 
