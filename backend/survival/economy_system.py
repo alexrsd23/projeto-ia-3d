@@ -7,24 +7,28 @@ class EconomySystem:
         "seeds": 1.0, 
         "logs": 1.0,    
         "stones": 1.0, 
-        "fences": 1.0  
+        "fences": 1.0,
+        "gates": 1.0     # <--- NOVO
     }
 
     def __init__(self):
         self.BASE_PRICES = {
-            "potatoes": 5.0, 
+            "potatoes": 8.0, 
             "seeds": 2.0, 
-            "logs": 4.5,    
-            "stones": 6.0, 
-            "fences": 13.5  
+            "logs": 4.0,    
+            "stones": 4.0, 
+            "fences": 12.5,
+            "gates": 28.0    # Custo(2 troncos + 4 pedras) = 24. Preço de Venda = 28
         }
-        self.STARTING_PLOBS = 50.0
+        # Injeção de Capital! Impede que a economia quebre na primeira geração de construções
+        self.STARTING_PLOBS = 300.0
 
     @classmethod
     def register_scarcity(cls, item_type: str):
-        """Aumenta a inflação do item em 10% sempre que um negócio falha por falta ou preço."""
+        """Aumenta a inflação do item em 10% sempre que um negócio falha por falta ou preço. Teto máximo de 500%."""
         if item_type in cls.GLOBAL_SCARCITY:
-            cls.GLOBAL_SCARCITY[item_type] += 0.10
+            # === CORREÇÃO: Previne hiperinflação ilimitada limitando o multiplicador a 5.0 ===
+            cls.GLOBAL_SCARCITY[item_type] = min(5.0, cls.GLOBAL_SCARCITY[item_type] + 0.10)
 
     @classmethod
     def cool_down_market(cls):

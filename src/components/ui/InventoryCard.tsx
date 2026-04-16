@@ -4,7 +4,8 @@ interface InventoryCardProps {
 }
 
 export default function InventoryCard({ entityType, inventoryJSON }: InventoryCardProps) {
-  let items = { potatoes: 0, seeds: 0, logs: 0, stones: 0, fences: 0, plobs: 0 };
+  // Adicionado 'gates: 0' para refletir os novos itens da economia
+  let items = { potatoes: 0, seeds: 0, logs: 0, stones: 0, fences: 0, gates: 0, plobs: 0 };
   
   try {
     if (inventoryJSON) {
@@ -23,7 +24,7 @@ export default function InventoryCard({ entityType, inventoryJSON }: InventoryCa
       
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
         
-        {/* === NOVO: CONTA BANCÁRIA (PLOBS) OCUPANDO AS DUAS COLUNAS === */}
+        {/* === CONTA BANCÁRIA (PLOBS) OCUPANDO AS DUAS COLUNAS === */}
         <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: '8px', background: '#fef9c3', padding: '6px 10px', borderRadius: '6px', border: '1px solid #fde047' }}>
           <span style={{ fontSize: '16px' }}>💰</span>
           <div style={{ display: 'flex', flexDirection: 'column' }}>
@@ -39,7 +40,8 @@ export default function InventoryCard({ entityType, inventoryJSON }: InventoryCa
           <span style={{ fontSize: '16px' }}>🥔</span>
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             <span style={{ fontSize: '10px', color: '#64748b', fontWeight: 600 }}>BATATAS</span>
-            <span style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a' }}>{items.potatoes} <span style={{fontSize:'10px', color:'#94a3b8', fontWeight:400}}>/16</span></span>
+            {/* Atualizado para /32 */}
+            <span style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a' }}>{items.potatoes} <span style={{fontSize:'10px', color:'#94a3b8', fontWeight:400}}>/32</span></span>
           </div>
         </div>
         
@@ -49,7 +51,8 @@ export default function InventoryCard({ entityType, inventoryJSON }: InventoryCa
             <span style={{ fontSize: '16px' }}>🌱</span>
             <div style={{ display: 'flex', flexDirection: 'column' }}>
               <span style={{ fontSize: '10px', color: '#64748b', fontWeight: 600 }}>SEMENTES</span>
-              <span style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a' }}>{items.seeds} <span style={{fontSize:'10px', color:'#94a3b8', fontWeight:400}}>/16</span></span>
+              {/* Atualizado para /32 */}
+              <span style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a' }}>{items.seeds} <span style={{fontSize:'10px', color:'#94a3b8', fontWeight:400}}>/32</span></span>
             </div>
           </div>
         )}
@@ -60,7 +63,8 @@ export default function InventoryCard({ entityType, inventoryJSON }: InventoryCa
             <span style={{ fontSize: '16px' }}>🪵</span>
             <div style={{ display: 'flex', flexDirection: 'column' }}>
               <span style={{ fontSize: '10px', color: '#b45309', fontWeight: 600 }}>MADEIRA</span>
-              <span style={{ fontSize: '14px', fontWeight: 700, color: '#78350f' }}>{items.logs} <span style={{fontSize:'10px', color:'#d4a373', fontWeight:400}}>/10</span></span>
+              {/* Atualizado para /50 */}
+              <span style={{ fontSize: '14px', fontWeight: 700, color: '#78350f' }}>{items.logs} <span style={{fontSize:'10px', color:'#d4a373', fontWeight:400}}>/50</span></span>
             </div>
           </div>
         )}
@@ -72,14 +76,16 @@ export default function InventoryCard({ entityType, inventoryJSON }: InventoryCa
               <span style={{ fontSize: '16px' }}>🪨</span>
               <div style={{ display: 'flex', flexDirection: 'column' }}>
                 <span style={{ fontSize: '10px', color: '#475569', fontWeight: 600 }}>PEDRAS</span>
-                <span style={{ fontSize: '14px', fontWeight: 700, color: '#334155' }}>{items.stones} <span style={{fontSize:'10px', color:'#94a3b8', fontWeight:400}}>/10</span></span>
+                {/* Atualizado para /30 */}
+                <span style={{ fontSize: '14px', fontWeight: 700, color: '#334155' }}>{items.stones} <span style={{fontSize:'10px', color:'#94a3b8', fontWeight:400}}>/30</span></span>
               </div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#f1f5f9', padding: '6px 10px', borderRadius: '6px', border: '1px solid #cbd5e1' }}>
               <span style={{ fontSize: '16px' }}>🧱</span>
               <div style={{ display: 'flex', flexDirection: 'column' }}>
                 <span style={{ fontSize: '10px', color: '#475569', fontWeight: 600 }}>CERCAS</span>
-                <span style={{ fontSize: '14px', fontWeight: 700, color: '#334155' }}>{items.fences} <span style={{fontSize:'10px', color:'#94a3b8', fontWeight:400}}>/5</span></span>
+                {/* Atualizado para /30 */}
+                <span style={{ fontSize: '14px', fontWeight: 700, color: '#334155' }}>{items.fences} <span style={{fontSize:'10px', color:'#94a3b8', fontWeight:400}}>/30</span></span>
               </div>
             </div>
           </>

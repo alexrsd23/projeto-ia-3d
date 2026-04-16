@@ -5,9 +5,10 @@ class InventorySystem:
         # Limites de Estoque
         self.MAX_POTATOES = 16
         self.MAX_SEEDS = 16
-        self.MAX_LOGS = 10     # Limite do Lenhador
-        self.MAX_STONES = 10   # Limite de Pedras (Construtor)
-        self.MAX_FENCES = 5    # Limite de Cercas Prontas (Construtor)
+        self.MAX_LOGS = 40     # Limite do Lenhador expandido para suprir a demanda
+        self.MAX_STONES = 16   # Pedras suficientes para 4 portões
+        self.MAX_FENCES = 20   # Cercas suficientes para cercar a fazenda inteira de uma vez
+        self.MAX_GATES = 5     # Novo Limite para Portões
 
     def parse(self, inventory_json):
         """Converte JSON para dicionário garantindo que todas as chaves existam."""
@@ -17,7 +18,8 @@ class InventorySystem:
             "logs": 0, 
             "stones": 0, 
             "fences": 0, 
-            "plobs": 50.0
+            "gates": 0,        # <--- NOVO: Chave para os Portões
+            "plobs": 300.0
         }
         
         if not inventory_json:

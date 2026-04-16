@@ -289,26 +289,88 @@ class SurvivalController:
                 return self._wander(agent_pos, blocked_coords, "Procurando florestas para cortar.")
                     
             elif agent_type == 'builder':
-                if inv.get('logs', 0) < 2 and self.inventory_sys.can_carry_fence(inv):
+                # 1. Verifica Contrato Ativo
+                active_contract = self.memory_sys.agent_memories.get(agent_id, {}).get('active_contract')
+                if active_contract:
+                    plot_id = active_contract['plot_id']
+                    target_plot = next((p for p in world_plots if p['id'] == plot_id), None)
+                    
+                    if target_plot:
+                        p_start_x = target_plot['startX']
+                        p_start_z = target_plot['startZ']
+                        p_max_x = p_start_x + (target_plot['width'] - 1) * 2
+                        p_max_z = p_start_z + (target_plot['height'] - 1) * 2
+                        
+                        perimeter_coords = []
+                        for px in range(p_start_x, p_max_x + 1, 2):
+                            for pz in range(p_start_z, p_max_z + 1, 2):
+                                if px == p_start_x or px == p_max_x or pz == p_start_z or pz == p_max_z:
+                                    perimeter_coords.append((px, pz))
+                        
+                        built_fences = {(round(e['x']), round(e['z'])) for e in world_entities if e.get('type') in ['fence', 'damaged_fence']}
+                        built_gates = {(round(e['x']), round(e['z'])) for e in world_entities if e.get('type') == 'gate'}
+                        
+                        missing_coords = [c for c in perimeter_coords if c not in built_fences and c not in built_gates]
+                        
+                        if not missing_coords:
+                            return ("FINISH_CONTRACT", agent_pos[0], agent_pos[1], None, "Obra concluída! A fazenda do cliente está 100% protegida.")
+                        
+                        # Regra: Só precisa de 1 portão. Se não tem portão, a prioridade é instalá-lo!
+                        needs_gate = len(built_gates) == 0
+                        
+                        if needs_gate:
+                            if inv.get('gates', 0) > 0:
+                                self.agent_states[agent_id] = "BUILDING"
+                                target = missing_coords[0] # Instala no primeiro buraco disponível
+                                dist = math.hypot(target[0] - agent_pos[0], target[1] - agent_pos[1])
+                                if dist <= 3.0:
+                                    return ("BUILD_NEW_GATE", agent_pos[0], agent_pos[1], {"x": target[0], "z": target[1], "plot_id": plot_id}, "Instalando o portão principal.")
+                                return self._move_towards(agent_pos, target, blocked_coords, "Indo instalar o portão do cliente.")
+                            else:
+                                if inv.get('logs', 0) >= 2 and inv.get('stones', 0) >= 4:
+                                    self.agent_states[agent_id] = "CRAFTING"
+                                    return ("CRAFT_GATE", agent_pos[0], agent_pos[1], None, "Fabricando Portão (2 Troncos, 4 Pedras).")
+                        else:
+                            if inv.get('fences', 0) > 0:
+                                self.agent_states[agent_id] = "BUILDING"
+                                missing_coords.sort(key=lambda c: math.hypot(c[0]-agent_pos[0], c[1]-agent_pos[1]))
+                                target = missing_coords[0]
+                                dist = math.hypot(target[0] - agent_pos[0], target[1] - agent_pos[1])
+                                if dist <= 3.0:
+                                    return ("BUILD_NEW_FENCE", agent_pos[0], agent_pos[1], {"x": target[0], "z": target[1], "plot_id": plot_id}, "Erguendo cerca perimetral.")
+                                return self._move_towards(agent_pos, target, blocked_coords, "Indo erguer cerca do contrato.")
+                            else:
+                                if inv.get('logs', 0) >= 2:
+                                    self.agent_states[agent_id] = "CRAFTING"
+                                    return ("CRAFT_FENCE", agent_pos[0], agent_pos[1], None, "Fabricando Cerca (2 Troncos).")
+                    else:
+                        return ("FINISH_CONTRACT", agent_pos[0], agent_pos[1], None, "A fazenda do cliente desapareceu. Obra cancelada.")
+
+                # 2. Logística e Coleta de Materiais (Só aciona se faltar material para a obra acima)
+                if inv.get('stones', 0) < 16:
+                    if radar_data.get('stones_on_ground'):
+                        target = radar_data['stones_on_ground'][0]
+                        if target['dist'] <= 3:
+                            return ("COLLECT_STONE", agent_pos[0], agent_pos[1], target['id'], "Minerando pedra.")
+                        return self._move_towards(agent_pos, (target['x'], target['z']), blocked_coords, "Indo coletar pedra.")
+                    else:
+                        # === CORREÇÃO: Ele DEVE procurar pedras mesmo se tiver contrato, pois o portão exige! ===
+                        self.agent_states[agent_id] = "SEEK_STONES"
+                        return self._wander(agent_pos, blocked_coords, "Procurando minérios de pedra no mapa.")
+
+                if inv.get('logs', 0) < 20: # Busca carregar a mochila (Compra em LOTE)
                     self.agent_states[agent_id] = "SEEK_LOGS"
-                    
                     my_boycotts = self.memory_sys.agent_memories.get(agent_id, {}).get('boycotts', {})
-                    active_boycotts = [wc_id for wc_id, tick_banned in my_boycotts.items() if current_tick - tick_banned < 50]
-                    
+                    active_boycotts = [w for w, tick in my_boycotts.items() if current_tick - tick < 50]
                     woodcutters = [p for p in radar_data.get('other_agents', []) if p['type'] == 'woodcutter' and p['id'] not in active_boycotts]
                     
                     if woodcutters:
                         target_wc = woodcutters[0]
                         if target_wc['dist'] <= 3:
-                            return ("TRADE_LOGS", agent_pos[0], agent_pos[1], target_wc['id'], f"Negociando compra de madeira com {target_wc['name']}.")
+                            return ("TRADE_LOGS_BULK", agent_pos[0], agent_pos[1], target_wc['id'], f"Comprando madeira em lote de {target_wc['name']}.")
                         return self._move_towards(agent_pos, (target_wc['x'], target_wc['z']), blocked_coords, f"Indo comprar madeira de {target_wc['name']}.")
-                    else:
-                        return self._wander(agent_pos, blocked_coords, "Madeira está muito cara ou em falta. Esperando o mercado acalmar.")
 
-                if inv.get('logs', 0) >= 2 and self.inventory_sys.can_carry_fence(inv):
-                    self.agent_states[agent_id] = "CRAFTING"
-                    return ("CRAFT_FENCE", agent_pos[0], agent_pos[1], None, "Transformando 2 troncos numa cerca.")
-
+                # 3. Reparos ou Fabricação de Estoque Frio
                 if inv.get('fences', 0) > 0 and radar_data.get('broken_fences'):
                     self.agent_states[agent_id] = "BUILDING"
                     target = radar_data['broken_fences'][0]
@@ -316,7 +378,7 @@ class SurvivalController:
                         return ("REPAIR_FENCE", agent_pos[0], agent_pos[1], target['id'], "Reparando estrutura danificada.")
                     return self._move_towards(agent_pos, (target['x'], target['z']), blocked_coords, "Deslocando para reparo.")
                 
-                return self._wander(agent_pos, blocked_coords, "Sem matéria-prima ou contratos. Explorando.")
+                return self._wander(agent_pos, blocked_coords, "Mochila cheia. Aguardando novos contratos de obras.")
                     
             elif agent_type == 'farmer' and (self.inventory_sys.has_seeds(inv) or any(c['dist'] <= 3.0 for c in radar_data.get('food_ready', []))):
                 self.agent_states[agent_id] = "FARMER"
@@ -433,10 +495,50 @@ class SurvivalController:
                             return ("PLOW", agent_pos[0], agent_pos[1], {"id": target[2], "x": target[0], "z": target[1]}, "Arando solo virgem para expandir plantação.")
                         return self._move_towards(agent_pos, (target[0], target[1]), blocked_coords, "Buscando terreno interno para arar.")
                     else:
-                        # === LIBERDADE ===
-                        # Se não precisa arar nem plantar, a fazenda está 100% pronta!
-                        self.agent_states[agent_id] = "EXPLORE"
-                        return self._wander(agent_pos, blocked_coords, "Minha fazenda está toda plantada! Explorando o mundo livremente.")
+                        # === VERIFICAÇÃO DE SEGURANÇA (NOVA OBRA) ===
+                        # A fazenda está plantada. Mas já tem o perímetro 100% cercado?
+                        perimeter_coords = []
+                        for px in range(p_start_x, p_max_x + 1, 2):
+                            for pz in range(p_start_z, p_max_z + 1, 2):
+                                if px == p_start_x or px == p_max_x or pz == p_start_z or pz == p_max_z:
+                                    perimeter_coords.append((px, pz))
+                                    
+                        fence_coords = {(round(e['x']), round(e['z'])) for e in world_entities if e.get('type') in ['fence', 'gate', 'damaged_fence']}
+                        missing_fences = [c for c in perimeter_coords if c not in fence_coords]
+                        
+                        if missing_fences:
+                            # === A CORREÇÃO DE GÊNIO ===
+                            # O Fazendeiro verifica se JÁ EXISTE algum construtor no mundo com o contrato da sua fazenda!
+                            is_under_construction = False
+                            for mem in self.memory_sys.agent_memories.values():
+                                contract = mem.get('active_contract')
+                                if contract and contract.get('plot_id') == my_plot['id']:
+                                    is_under_construction = True
+                                    break
+                                    
+                            if is_under_construction:
+                                self.agent_states[agent_id] = "WAITING_BUILDER"
+                                return self._wander(agent_pos, blocked_coords, "Obra em andamento! Aguardando o construtor finalizar o serviço.")
+                                
+                            self.agent_states[agent_id] = "SEEK_BUILDER"
+                            
+                            # Filtra os construtores que já recusaram obras em outros terrenos
+                            my_boycotts = self.memory_sys.agent_memories.get(agent_id, {}).get('boycotts', {})
+                            active_boycotts = [b_id for b_id, tick in my_boycotts.items() if current_tick - tick < 50]
+                            
+                            builders = [p for p in radar_data.get('other_agents', []) if p['type'] == 'builder' and p['id'] not in active_boycotts]
+                            
+                            if builders:
+                                target_builder = builders[0]
+                                if target_builder['dist'] <= 3.0:
+                                    return ("HIRE_BUILDER", agent_pos[0], agent_pos[1], target_builder['id'], f"Contratando o construtor {target_builder['name']} para cercar a minha propriedade!")
+                                return self._move_towards(agent_pos, (target_builder['x'], target_builder['z']), blocked_coords, "Perseguindo construtor para firmar contrato de obra.")
+                            else:
+                                return self._wander(agent_pos, blocked_coords, "Fazenda plantada! Vagando à procura de um Construtor livre para erguer as cercas.")
+                        else:
+                            # === LIBERDADE ABSOLUTA ===
+                            self.agent_states[agent_id] = "EXPLORE"
+                            return self._wander(agent_pos, blocked_coords, "Fazenda 100% plantada e murada! Explorando o mundo livremente.")
                         
             # Fim do bloco "if is_comfortable:" e das profissões
 

@@ -40,6 +40,8 @@ class PerceptionSystem:
                 
                 if entity['type'] == 'cactus':
                     seen_data["hazards"].append(item)
+                elif entity['type'] == 'stone': # <--- NOVO: O construtor agora enxerga pedras!
+                    seen_data.setdefault("stones_on_ground", []).append(item)
                 elif entity['type'] == 'character':
                     seen_data["other_agents"].append(item)
                 elif entity['type'] == 'loot':

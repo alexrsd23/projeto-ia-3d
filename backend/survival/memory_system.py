@@ -155,10 +155,13 @@ class SpatialMemory:
             for category in ['food', 'farms', 'hazards']:
                 if category in db_mem:
                     for str_coord, data in db_mem[category].items():
-                        # Reconverte a string "x,z" salva no banco de volta para a tupla matemática (x, z)
                         x, z = map(int, str_coord.split(','))
                         self.agent_memories[agent_id][category][(x, z)] = data
             if 'rejections' in db_mem:
                 self.agent_memories[agent_id]['rejections'] = db_mem['rejections']
+            
+            # === NOVO: PERSISTÊNCIA DO CONTRATO ===
+            if 'active_contract' in db_mem and db_mem['active_contract'] is not None:
+                self.agent_memories[agent_id]['active_contract'] = db_mem['active_contract']
         except:
             pass

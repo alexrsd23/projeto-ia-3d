@@ -321,7 +321,7 @@ export default function App() {
           trustLevel: agentTrust,
           lieLevel: agentLie,
           // === A MÃO DE DEUS INJETA O CAPITAL INICIAL E A RAM AQUI ===
-          inventoryJSON: JSON.stringify({ plobs: 50.0, potatoes: 0, seeds: 0, logs: 0, stones: 0, fences: 0 }),
+          inventoryJSON: JSON.stringify({ plobs: 300.0, potatoes: 0, seeds: 0, logs: 0, stones: 0, fences: 0, gates: 0 }),
           memoryJSON: JSON.stringify({ food: {}, farms: {}, hazards: {} }),
           state: "IDLE"
         })

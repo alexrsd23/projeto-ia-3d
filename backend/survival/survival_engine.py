@@ -130,7 +130,8 @@ def process_survival_tick(survival_brain, session):
             "food": {f"{k[0]},{k[1]}": v for k, v in raw_mem.get('food', {}).items()},
             "farms": {f"{k[0]},{k[1]}": v for k, v in raw_mem.get('farms', {}).items()},
             "hazards": {f"{k[0]},{k[1]}": v for k, v in raw_mem.get('hazards', {}).items()},
-            "rejections": raw_mem.get('rejections', [])
+            "rejections": raw_mem.get('rejections', []),
+            "active_contract": raw_mem.get('active_contract') # <--- NOVO: Neo4j agora salva as obras
         }
         
         action_type_for_bio = "MOVE" if action == "MOVE" else ("ACTION" if action in ["HARVEST", "PLANT", "PLOW"] else "IDLE")
@@ -164,8 +165,7 @@ def process_survival_tick(survival_brain, session):
         # 3. Execução das Ações Físicas (Logs de Sucesso/Morte)
         
         # === NOVO: AVALIAÇÃO DE CONCORRÊNCIA ===
-        # Se a ação interage com um alvo externo, verificamos se ele já foi bloqueado
-        if action not in ["IDLE", "MOVE", "EAT_INVENTORY", "CRAFT_FENCE", "PROPOSE_MARRIAGE", "RESERVE_PLOT"]:
+        if action not in ["IDLE", "MOVE", "EAT_INVENTORY", "CRAFT_FENCE", "CRAFT_GATE", "PROPOSE_MARRIAGE", "RESERVE_PLOT", "FINISH_CONTRACT", "HIRE_BUILDER", "BUILD_NEW_FENCE", "BUILD_NEW_GATE", "TRADE_LOGS_BULK"]:
             t_id = target_id["id"] if isinstance(target_id, dict) else target_id
             if t_id:
                 if t_id in locked_targets:
@@ -173,13 +173,148 @@ def process_survival_tick(survival_brain, session):
                     continue # Aborta a ação física e passa para o próximo agente
                 else:
                     locked_targets.add(t_id) # Tranca o alvo para o resto deste tick!
+                    
+        elif action == "TRADE_LOGS_BULK":
+            target_agent = next((a for a in agents if a['id'] == target_id), None)
+            if target_agent:
+                seller_inv = survival_brain.inventory_sys.parse(target_agent.get('inventoryJSON', "{}"))
+                buyer_data = { "inventoryJSON": inv, "hunger": agent.get('hunger', 100), "lieLevel": agent.get('lieLevel', 0) }
+                seller_data = { "inventoryJSON": seller_inv, "hunger": target_agent.get('hunger', 100), "lieLevel": target_agent.get('lieLevel', 0) }
+                
+                deal = economy.negotiate_deal(buyer_data, seller_data, "logs", 1)
+                if deal["success"]:
+                    unit_price = deal["price"]
+                    seller_stock = seller_inv.get("logs", 0)
+                    buyer_space = survival_brain.inventory_sys.MAX_LOGS - inv.get("logs", 0)
+                    buyer_funds = inv.get("plobs", 0.0)
+                    
+                    # Calcula quantos troncos ele consegue comprar de uma vez (limitado por espaço, estoque do lenhador e dinheiro)
+                    max_affordable = int(buyer_funds // unit_price) if unit_price > 0 else buyer_space
+                    qty_to_buy = min(seller_stock, buyer_space, max_affordable)
+                    
+                    if qty_to_buy > 0:
+                        success, b_inv, s_inv, msg = economy.execute_trade(inv, seller_inv, "logs", unit_price, qty_to_buy)
+                        if success:
+                            inv = b_inv
+                            target_agent['inventoryJSON'] = survival_brain.inventory_sys.to_string(s_inv)
+                            for up in updates_agents:
+                                if up['id'] == target_id: up['inv'] = target_agent['inventoryJSON']
+                            events.append({"id": str(uuid.uuid4()), "level": "SUCCESS", "message": f"🤝 LOTE B2B: {agent_name} comprou {qty_to_buy} Troncos de {target_agent.get('name')} por {unit_price * qty_to_buy:.2f} Plobs.", "timestamp": current_time})
+                        else:
+                            events.append({"id": str(uuid.uuid4()), "level": "WARNING", "message": f"❌ Liquidação em lote falhou: {msg}.", "timestamp": current_time})
+                    else:
+                        events.append({"id": str(uuid.uuid4()), "level": "WARNING", "message": f"❌ Acordo fechado, mas {agent_name} não pode carregar os troncos ou o lenhador está zerado.", "timestamp": current_time})
+                else:
+                    events.append({"id": str(uuid.uuid4()), "level": "WARNING", "message": f"💸 Falha de Mercado: {agent_name} achou a madeira muito cara.", "timestamp": current_time})
+                    EconomySystem.register_scarcity("logs")
+                    survival_brain.memory_sys._ensure_agent(agent['id'])
+                    survival_brain.memory_sys.agent_memories[agent['id']].setdefault('boycotts', {})[target_id] = current_tick
+
+        elif action == "CRAFT_GATE":
+            if inv.get('logs', 0) >= 2 and inv.get('stones', 0) >= 4:
+                inv['logs'] -= 2
+                inv['stones'] -= 4
+                inv['gates'] = inv.get('gates', 0) + 1
+                biology.process_tick(agent, "ACTION")
+                events.append({"id": str(uuid.uuid4()), "level": "SUCCESS", "message": f"⚒️ {agent_name} forjou o Portão Principal.", "timestamp": current_time})
+
+        elif action == "BUILD_NEW_GATE":
+            tx, tz = target_id["x"], target_id["z"]
+            owner_id = target_id.get("plot_id", "").replace("plot-", "")
+            customer = next((a for a in agents if a['id'] == owner_id), None)
+            
+            fee = economy.BASE_PRICES['gates']
+            if customer and inv.get('gates', 0) > 0:
+                cust_inv = survival_brain.inventory_sys.parse(customer.get('inventoryJSON', "{}"))
+                if cust_inv.get('plobs', 0) >= fee:
+                    cust_inv['plobs'] -= fee
+                    inv['plobs'] += fee
+                    inv['gates'] -= 1
+                    
+                    customer['inventoryJSON'] = survival_brain.inventory_sys.to_string(cust_inv)
+                    for up in updates_agents:
+                        if up['id'] == customer['id']: up['inv'] = customer['inventoryJSON']
+                            
+                    new_gate = {
+                        "id": str(uuid.uuid4()), "type": "gate", "posX": tx, "posY": 0.5, "posZ": tz,
+                        "health": 100.0, "hunger": 0.0, "name": "Portão", "inventoryJSON": "{}", "memoryJSON": "{}", "state": "IDLE"
+                    }
+                    new_entities_to_create.append(new_gate)
+                    world_entities.append({"id": new_gate['id'], "type": "gate", "x": tx, "z": tz, "hp": 100.0})
+                    
+                    events.append({"id": str(uuid.uuid4()), "level": "SUCCESS", "message": f"🚪 {agent_name} instalou o portão para {customer.get('name')} por {fee} Plobs.", "timestamp": current_time})
+                else:
+                    events.append({"id": str(uuid.uuid4()), "level": "ERROR", "message": f"❌ Obra Embargada: {customer.get('name')} faliu no meio da obra do portão!", "timestamp": current_time})
+                    survival_brain.memory_sys._ensure_agent(agent['id'])
+                    if 'active_contract' in survival_brain.memory_sys.agent_memories[agent['id']]:
+                        del survival_brain.memory_sys.agent_memories[agent['id']]['active_contract']
         
         if action == "EAT_INVENTORY":
             if survival_brain.inventory_sys.consume_potato(inv):
                 recovered = biology.consume_food({'hunger': new_hunger, 'hp': new_hp})
                 new_hunger, new_hp = recovered['hunger'], recovered['hp']
                 events.append({"id": str(uuid.uuid4()), "level": "WARNING", "message": f"{agent_name} — Inventário: Consumiu 1 batata (Nova fome: {new_hunger:.1f}%)", "timestamp": current_time})
-                
+        
+        elif action == "HIRE_BUILDER":
+            target_agent = next((a for a in agents if a['id'] == target_id), None)
+            if target_agent:
+                # Verifica a RAM do construtor alvo
+                t_mem = survival_brain.memory_sys.agent_memories.get(target_id, {})
+                if not t_mem.get('active_contract'):
+                    plot_id = f"plot-{agent['id']}"
+                    survival_brain.memory_sys._ensure_agent(target_id)
+                    survival_brain.memory_sys.agent_memories[target_id]['active_contract'] = {"plot_id": plot_id, "owner_id": agent['id']}
+                    
+                    events.append({"id": str(uuid.uuid4()), "level": "SUCCESS", "message": f"📝 CONTRATO: {agent_name} contratou o Construtor {target_agent.get('name')} para erguer cercas!", "timestamp": current_time})
+                else:
+                    events.append({"id": str(uuid.uuid4()), "level": "WARNING", "message": f"⏳ {agent_name} tentou contratar o Construtor {target_agent.get('name')}, mas ele já tem uma obra noutro terreno!", "timestamp": current_time})
+                    
+                    # === CORREÇÃO: O Fazendeiro regista a rejeição para não assediar o construtor em loop ===
+                    survival_brain.memory_sys._ensure_agent(agent['id'])
+                    survival_brain.memory_sys.agent_memories[agent['id']].setdefault('boycotts', {})[target_id] = current_tick
+
+        elif action == "FINISH_CONTRACT":
+            survival_brain.memory_sys._ensure_agent(agent['id'])
+            if 'active_contract' in survival_brain.memory_sys.agent_memories[agent['id']]:
+                del survival_brain.memory_sys.agent_memories[agent['id']]['active_contract']
+            events.append({"id": str(uuid.uuid4()), "level": "SUCCESS", "message": f"✅ {agent_name} finalizou e entregou a obra do contrato!", "timestamp": current_time})
+
+        elif action == "BUILD_NEW_FENCE":
+            tx, tz = target_id["x"], target_id["z"]
+            owner_id = target_id.get("plot_id", "").replace("plot-", "")
+            customer = next((a for a in agents if a['id'] == owner_id), None)
+            
+            fee = economy.BASE_PRICES['fences'] # O Construtor cobra o preço tabelado por cada bloco
+            
+            if customer and inv.get('fences', 0) > 0:
+                cust_inv = survival_brain.inventory_sys.parse(customer.get('inventoryJSON', "{}"))
+                if cust_inv.get('plobs', 0) >= fee:
+                    # Pagamento B2B
+                    cust_inv['plobs'] -= fee
+                    inv['plobs'] += fee
+                    inv['fences'] -= 1
+                    
+                    customer['inventoryJSON'] = survival_brain.inventory_sys.to_string(cust_inv)
+                    for up in updates_agents:
+                        if up['id'] == customer['id']:
+                            up['inv'] = customer['inventoryJSON']
+                            
+                    # Criação Física da Cerca
+                    new_fence = {
+                        "id": str(uuid.uuid4()), "type": "fence", "posX": tx, "posY": 0.5, "posZ": tz,
+                        "health": 100.0, "hunger": 0.0, "name": "Cerca", "inventoryJSON": "{}", "memoryJSON": "{}", "state": "IDLE"
+                    }
+                    new_entities_to_create.append(new_fence)
+                    # Hack visual: injeta no mundo de imediato para não empilhar duas cercas no mesmo segundo
+                    world_entities.append({"id": new_fence['id'], "type": "fence", "x": tx, "z": tz, "hp": 100.0})
+                    
+                    events.append({"id": str(uuid.uuid4()), "level": "SUCCESS", "message": f"🚧 {agent_name} ergueu uma cerca para {customer.get('name')} por {fee} Plobs.", "timestamp": current_time})
+                else:
+                    events.append({"id": str(uuid.uuid4()), "level": "ERROR", "message": f"❌ Obra Embargada: {customer.get('name')} ficou sem Plobs para pagar! O contrato foi cancelado.", "timestamp": current_time})
+                    survival_brain.memory_sys._ensure_agent(agent['id'])
+                    if 'active_contract' in survival_brain.memory_sys.agent_memories[agent['id']]:
+                        del survival_brain.memory_sys.agent_memories[agent['id']]['active_contract']
+               
         elif action == "ATTACK_AGENT":
             target_agent = next((a for a in agents if a['id'] == target_id), None)
             if target_agent:
