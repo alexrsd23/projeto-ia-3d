@@ -1,31 +1,55 @@
 import math
 
 class EconomySystem:
+    # === NOVO: Variáveis de Classe para persistir a escassez global ===
+    GLOBAL_SCARCITY = {
+        "potatoes": 1.0, 
+        "seeds": 1.0, 
+        "logs": 1.0,    
+        "stones": 1.0, 
+        "fences": 1.0  
+    }
+
     def __init__(self):
-        # Aumentamos o valor da cerca para garantir a margem de lucro
         self.BASE_PRICES = {
             "potatoes": 5.0, 
             "seeds": 2.0, 
-            "logs": 4.5,    # Matéria-prima (X2 = 9.0)
+            "logs": 4.5,    
             "stones": 6.0, 
-            "fences": 13.5  # Produto Final (> 9.0 para lucro real)
+            "fences": 13.5  
         }
         self.STARTING_PLOBS = 50.0
 
+    @classmethod
+    def register_scarcity(cls, item_type: str):
+        """Aumenta a inflação do item em 10% sempre que um negócio falha por falta ou preço."""
+        if item_type in cls.GLOBAL_SCARCITY:
+            cls.GLOBAL_SCARCITY[item_type] += 0.10
+
+    @classmethod
+    def cool_down_market(cls):
+        """Esfria o mercado em 1% a cada tick para o preço descer se não houver crises."""
+        for k in cls.GLOBAL_SCARCITY:
+            if cls.GLOBAL_SCARCITY[k] > 1.0:
+                cls.GLOBAL_SCARCITY[k] = max(1.0, cls.GLOBAL_SCARCITY[k] - 0.01)
+
     def evaluate_item_value(self, item_type: str, agent_inv: dict, current_hunger: float, trait_lie: float):
-        """Calcula o Valuation (Preço Teto ou Piso) baseado no desespero e ganância."""
+        """Calcula o Valuation baseado no desespero, ganância E inflação global."""
         base_value = self.BASE_PRICES.get(item_type, 1.0)
-        greed_margin = (trait_lie / 100.0) * 0.5 
         
+        # === NOVO: Aplica a inflação global sobre o preço base ===
+        inflated_base = base_value * self.GLOBAL_SCARCITY.get(item_type, 1.0)
+        
+        greed_margin = (trait_lie / 100.0) * 0.5 
         item_qty = agent_inv.get(item_type, 0)
         scarcity_multiplier = 1.5 if item_qty == 0 else (0.8 if item_qty > 10 else 1.0)
             
-        # Fome vai de 100 (Cheio) a 0 (Morte). O desespero inverte isso:
+        # Desespero biológico (0 = desespero máximo)
         biological_need = (100.0 - current_hunger) / 100.0 
-        urgency_multiplier = 1.0 + biological_need
+        desperation_multiplier = 1.0 + (1.0 - biological_need)
 
-        subjective_value = base_value * (1.0 + greed_margin) * scarcity_multiplier * urgency_multiplier
-        return round(subjective_value, 2)
+        final_value = inflated_base * scarcity_multiplier * desperation_multiplier * (1.0 + greed_margin)
+        return round(max(0.1, final_value), 2)
 
     def negotiate_deal(self, buyer, seller, item_type, qty=1):
         """A Sala de Reuniões: Os dois calculam os seus limites. Se houver margem, fecham negócio."""

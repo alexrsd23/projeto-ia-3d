@@ -117,13 +117,18 @@ class BiologySystem:
         child_color = rgb_to_hex(child_rgb)
         
         # 3. Herança Comportamental (Natureza + Mutação/Nurture)
-        # A criança herda a média dos traços, mas com livre arbítrio (mutação de -15 a +15 pontos)
+        # === CORREÇÃO: Genética Dominante (Mendel) ===
+        # A criança herda 100% do gene de um dos pais aleatoriamente, e sofre uma mutação.
         def mix_trait(trait_name):
             val_a = float(parent_a.get(trait_name, 50.0))
             val_b = float(parent_b.get(trait_name, 50.0))
-            avg = (val_a + val_b) / 2
+            
+            # Sorteia qual genitor passará o gene dominante
+            base_gene = random.choice([val_a, val_b])
+            
+            # Aplica a mutação (livre arbítrio / fatores externos)
             mutation = random.uniform(-15.0, 15.0)
-            return max(0.0, min(100.0, avg + mutation)) # Garante que fica entre 0 e 100
+            return max(0.0, min(100.0, base_gene + mutation)) # Garante que fica entre 0 e 100
 
         child_trust = mix_trait('trustLevel')
         child_lie = mix_trait('lieLevel')

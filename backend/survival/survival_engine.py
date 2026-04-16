@@ -9,6 +9,7 @@ from survival.forestry_system import ForestrySystem
 def process_survival_tick(survival_brain, session):
     economy = EconomySystem()
     biology = BiologySystem()
+    EconomySystem.cool_down_market()
     current_tick = getattr(survival_brain, 'tick_counter', 0)
     survival_brain.tick_counter = current_tick + 1
 
@@ -17,6 +18,8 @@ def process_survival_tick(survival_brain, session):
     dead_agents = []
     events = []
     new_entities_to_create = []
+    
+    locked_targets = set()
     
     # Tipos de agentes inteligentes/sensitivos do sistema
     AGENT_TYPES = ['farmer', 'woodcutter', 'builder', 'wolf']
@@ -71,15 +74,9 @@ def process_survival_tick(survival_brain, session):
 
     # === NOVO: BUSCA DAS PROPRIEDADES RESERVADAS (AGORA COM O ID DO DONO) ===
     query_plots = """
-    MATCH (owner:Entity)-[:OWNS]->(p:Plot)
-    RETURN 
-        p.id AS id,
-        owner.id AS ownerId,  // <--- O ID de quem comprou!
-        p.startX AS startX,
-        p.startZ AS startZ,
-        p.width AS width,
-        p.height AS height,
-        p.status AS status
+    MATCH (p:Plot)
+    OPTIONAL MATCH (owner:Entity)-[:OWNS]->(p)
+    RETURN p.id AS id, p.startX AS startX, p.startZ AS startZ, p.width AS width, p.height AS height, p.status AS status, owner.id AS ownerId
     """
 
     # Execução das Queries no Banco de Dados
@@ -107,32 +104,33 @@ def process_survival_tick(survival_brain, session):
     for agent in agents:
         inv = survival_brain.inventory_sys.parse(agent.get('inventoryJSON', "{}"))
         
-        # 2. O Cérebro Pensa e Atualiza a RAM (AGORA COM 6 VARIÁVEIS)
+        # === CORREÇÃO 1: Restaura a Memória real do Neo4j para a RAM ===
+        if agent.get('memoryJSON') and agent['memoryJSON'] != "{}":
+            survival_brain.memory_sys.load_from_db(agent['id'], agent['memoryJSON'])
+        
+        # 2. O Cérebro Pensa e Atualiza a RAM
         action, new_x, new_z, target_id, brain_log = survival_brain.decide_next_move(
             agent, world_entities, world_tiles, world_plots, current_tick, agents
         )
         
-        # Formatação Cronológica do Log do Cérebro
+        # (Mantenha o código de log do current_time e agent_name igual...)
         current_time = datetime.now().strftime("%H:%M:%S")
-        
-        # Garante nome impactante para o lobo caso ele não tenha
         agent_name = agent.get('name')
         if not agent_name:
             agent_name = f"Lobo {agent['id'][:4]}" if agent['type'] == 'wolf' else f"Agente {agent['id'][:4]}"
-        
         if brain_log:
-            # INFO padrão de pensamento e navegação
             events.append({"id": str(uuid.uuid4()), "level": "INFO", "message": f"{agent_name} — {brain_log}", "timestamp": current_time})
 
-        # Extração de Dados
         state_msg = survival_brain.agent_states.get(agent['id'], "IDLE")
         raw_mem = survival_brain.memory_sys.agent_memories.get(agent['id'], {})
         
-        # Simplifica a memória para o formato leve que o React espera (Impede crash de tuplos no JSON)
+        # === CORREÇÃO 2: PERSISTÊNCIA REAL NO BANCO ===
+        # Salvamos as coordenadas reais convertendo a tupla (x,z) em string "x,z"
         safe_memory = {
-            "food": {f"item{i}": 1 for i in range(len(raw_mem.get('food', {})))},
-            "farms": {f"item{i}": 1 for i in range(len(raw_mem.get('farms', {})))},
-            "hazards": {f"item{i}": 1 for i in range(len(raw_mem.get('hazards', {})))}
+            "food": {f"{k[0]},{k[1]}": v for k, v in raw_mem.get('food', {}).items()},
+            "farms": {f"{k[0]},{k[1]}": v for k, v in raw_mem.get('farms', {}).items()},
+            "hazards": {f"{k[0]},{k[1]}": v for k, v in raw_mem.get('hazards', {}).items()},
+            "rejections": raw_mem.get('rejections', [])
         }
         
         action_type_for_bio = "MOVE" if action == "MOVE" else ("ACTION" if action in ["HARVEST", "PLANT", "PLOW"] else "IDLE")
@@ -164,6 +162,18 @@ def process_survival_tick(survival_brain, session):
             continue # Pula as ações físicas
 
         # 3. Execução das Ações Físicas (Logs de Sucesso/Morte)
+        
+        # === NOVO: AVALIAÇÃO DE CONCORRÊNCIA ===
+        # Se a ação interage com um alvo externo, verificamos se ele já foi bloqueado
+        if action not in ["IDLE", "MOVE", "EAT_INVENTORY", "CRAFT_FENCE", "PROPOSE_MARRIAGE", "RESERVE_PLOT"]:
+            t_id = target_id["id"] if isinstance(target_id, dict) else target_id
+            if t_id:
+                if t_id in locked_targets:
+                    events.append({"id": str(uuid.uuid4()), "level": "WARNING", "message": f"⏳ {agent_name} hesitou! Outro agente interagiu com o alvo primeiro.", "timestamp": current_time})
+                    continue # Aborta a ação física e passa para o próximo agente
+                else:
+                    locked_targets.add(t_id) # Tranca o alvo para o resto deste tick!
+        
         if action == "EAT_INVENTORY":
             if survival_brain.inventory_sys.consume_potato(inv):
                 recovered = biology.consume_food({'hunger': new_hunger, 'hp': new_hp})
@@ -500,8 +510,11 @@ def process_survival_tick(survival_brain, session):
                         survival_brain.memory_sys._ensure_agent(agent['id'])
                         survival_brain.memory_sys.agent_memories[agent['id']].setdefault('boycotts', {})[target_id] = current_tick
                 else:
-                    events.append({"id": str(uuid.uuid4()), "level": "WARNING", "message": f"💸 Falha de Mercado B2B: {agent_name} ofereceu {deal['buyer_ceiling']:.2f} Plobs, mas {target_agent.get('name', 'Lenhador')} exigiu no mínimo {deal['seller_floor']:.2f} Plobs!", "timestamp": current_time})
-                    # O comprador regista o boicote na memória RAM!
+                    events.append({"id": str(uuid.uuid4()), "level": "WARNING", "message": f"💸 Falha de Mercado B2B: {agent_name} ofereceu {deal['buyer_ceiling']:.2f} Plobs, mas o vendedor exigiu {deal['seller_floor']:.2f}!", "timestamp": current_time})
+                    
+                    # === NOVO: O Item ficou escasso/inflacionado! ===
+                    EconomySystem.register_scarcity("logs") # (Use "potatoes" na ação de TRADE normal)
+                    
                     survival_brain.memory_sys._ensure_agent(agent['id'])
                     survival_brain.memory_sys.agent_memories[agent['id']].setdefault('boycotts', {})[target_id] = current_tick
 

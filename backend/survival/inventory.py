@@ -3,8 +3,8 @@ import json
 class InventorySystem:
     def __init__(self):
         # Limites de Estoque
-        self.MAX_POTATOES = 4
-        self.MAX_SEEDS = 4
+        self.MAX_POTATOES = 16
+        self.MAX_SEEDS = 16
         self.MAX_LOGS = 10     # Limite do Lenhador
         self.MAX_STONES = 10   # Limite de Pedras (Construtor)
         self.MAX_FENCES = 5    # Limite de Cercas Prontas (Construtor)

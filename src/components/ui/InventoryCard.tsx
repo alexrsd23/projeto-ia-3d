@@ -39,7 +39,7 @@ export default function InventoryCard({ entityType, inventoryJSON }: InventoryCa
           <span style={{ fontSize: '16px' }}>🥔</span>
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             <span style={{ fontSize: '10px', color: '#64748b', fontWeight: 600 }}>BATATAS</span>
-            <span style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a' }}>{items.potatoes} <span style={{fontSize:'10px', color:'#94a3b8', fontWeight:400}}>/4</span></span>
+            <span style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a' }}>{items.potatoes} <span style={{fontSize:'10px', color:'#94a3b8', fontWeight:400}}>/16</span></span>
           </div>
         </div>
         
@@ -49,7 +49,7 @@ export default function InventoryCard({ entityType, inventoryJSON }: InventoryCa
             <span style={{ fontSize: '16px' }}>🌱</span>
             <div style={{ display: 'flex', flexDirection: 'column' }}>
               <span style={{ fontSize: '10px', color: '#64748b', fontWeight: 600 }}>SEMENTES</span>
-              <span style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a' }}>{items.seeds} <span style={{fontSize:'10px', color:'#94a3b8', fontWeight:400}}>/4</span></span>
+              <span style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a' }}>{items.seeds} <span style={{fontSize:'10px', color:'#94a3b8', fontWeight:400}}>/16</span></span>
             </div>
           </div>
         )}

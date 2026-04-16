@@ -199,22 +199,52 @@ class SurvivalController:
                             self.agent_states[agent_id] = "COURTING"
                             return self._move_towards(agent_pos, (spouse['x'], spouse['z']), blocked_coords, f"Indo encontrar {spouse['name']} para ter um filho.")
         
-        # PRIORIDADE 0: Auto-Regulação Preventiva
-        if is_hungry and self.inventory_sys.has_food(inv):
-            self.agent_states[agent_id] = "SNACKING"
-            log = f"Avaliando necessidades: Fome moderada ({hunger:.1f}%). Consumindo 1 batata preventiva."
-            return ("EAT_INVENTORY", agent_pos[0], agent_pos[1], None, log)
-            
+        # === PRIORIDADE 0: AUTO-REGULAÇÃO (Comer) ===
+        if hunger < 60.0 and self.inventory_sys.has_food(inv):
+            return ("EAT_INVENTORY", agent_pos[0], agent_pos[1], None, "Saciando a fome com as provisões da mochila.")
+
         # PRIORIDADE 1: FOME REAL
         if is_critical or (is_hungry and not self.inventory_sys.has_food(inv)):
             self.agent_states[agent_id] = "SEEK_FOOD"
             if agent_type == 'farmer':
+                
+                # A) Instinto de Curto Alcance: Tenta a visão local (Radar)
                 if radar_data.get('food_ready'):
                     target = radar_data['food_ready'][0] 
                     if target['dist'] <= 3:
-                        return ("HARVEST", agent_pos[0], agent_pos[1], target['tile_id'], "Colhendo batata madura.")
-                    return self._move_towards(agent_pos, (target['x'], target['z']), blocked_coords, "Indo colher comida.")
+                        return ("HARVEST", agent_pos[0], agent_pos[1], target['tile_id'], "Colhendo batata madura para saciar a fome.")
+                    return self._move_towards(agent_pos, (target['x'], target['z']), blocked_coords, "Correndo para colher comida (Radar).")
+                
+                # B) A BÚSSOLA DO ESTÔMAGO: Volta para casa para procurar/esperar comida
+                my_plot = next((p for p in world_plots if p.get('ownerId') == agent_id), None)
+                if my_plot:
+                    # CORREÇÃO GEOMÉTRICA: Força o Snap to Grid (// 2 * 2) para aterrar num bloco par exato!
+                    center_x = (my_plot['startX'] + my_plot['width'] - 1) // 2 * 2
+                    center_z = (my_plot['startZ'] + my_plot['height'] - 1) // 2 * 2
+                    dist_to_plot = math.hypot(center_x - agent_pos[0], center_z - agent_pos[1])
+                    
+                    if dist_to_plot > 4.0:
+                        return self._move_towards(agent_pos, (center_x, center_z), blocked_coords, "Faminto! Retornando à minha fazenda em busca de comida.")
+                    else:
+                        # === O FIM DO VAGAR INÚTIL ===
+                        # Se chegou à fazenda e não há comida no radar, é porque as batatas ainda estão a crescer. Ele ESPERA!
+                        self.agent_states[agent_id] = "WAITING_CROP"
+                        return ("MOVE", agent_pos[0], agent_pos[1], None, "Faminto! Esperando a colheita crescer na minha fazenda...")
+
+                # C) O Hipocampo: Tenta lembrar de batatas selvagens
+                best_mem = self.memory_sys.get_best_food_source(agent_id, agent_pos)
+                if best_mem:
+                    dist = math.hypot(best_mem[0] - agent_pos[0], best_mem[1] - agent_pos[1])
+                    if dist <= 3:
+                        self.memory_sys.invalidate_food_memory(agent_id, best_mem)
+                        return self._wander(agent_pos, blocked_coords, "Alguém comeu a batata que estava aqui! Procurando...")
+                    return self._move_towards(agent_pos, best_mem, blocked_coords, "Lembrando de um local com comida selvagem...")
+
+                # D) Sobrevivência Bruta: Vaga pelo mapa rezando para achar algo
+                return self._wander(agent_pos, blocked_coords, "Faminto e perdido! Vagueando em busca de recursos selvagens.")
+            
             else:
+                # (Mantenha o código do SEEK_TRADE do Lenhador/Construtor exatamente como estava aqui...)
                 self.agent_states[agent_id] = "SEEK_TRADE"
                 
                 my_boycotts = self.memory_sys.agent_memories.get(agent_id, {}).get('boycotts', {})
@@ -288,7 +318,7 @@ class SurvivalController:
                 
                 return self._wander(agent_pos, blocked_coords, "Sem matéria-prima ou contratos. Explorando.")
                     
-            elif agent_type == 'farmer' and self.inventory_sys.has_seeds(inv):
+            elif agent_type == 'farmer' and (self.inventory_sys.has_seeds(inv) or any(c['dist'] <= 3.0 for c in radar_data.get('food_ready', []))):
                 self.agent_states[agent_id] = "FARMER"
                 
                 # 1. PRIORIDADE LOCAL: Se há comida madura AO ALCANCE, colhe primeiro para limpar o terreno

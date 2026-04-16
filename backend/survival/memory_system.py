@@ -145,3 +145,20 @@ class SpatialMemory:
                 best_coord = coord
                 
         return best_coord
+    
+    def load_from_db(self, agent_id, memory_json):
+        """Restaura a memória do Banco de Dados para a RAM do agente."""
+        import json
+        self._ensure_agent(agent_id)
+        try:
+            db_mem = json.loads(memory_json)
+            for category in ['food', 'farms', 'hazards']:
+                if category in db_mem:
+                    for str_coord, data in db_mem[category].items():
+                        # Reconverte a string "x,z" salva no banco de volta para a tupla matemática (x, z)
+                        x, z = map(int, str_coord.split(','))
+                        self.agent_memories[agent_id][category][(x, z)] = data
+            if 'rejections' in db_mem:
+                self.agent_memories[agent_id]['rejections'] = db_mem['rejections']
+        except:
+            pass
