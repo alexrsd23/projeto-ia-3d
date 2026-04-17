@@ -163,5 +163,9 @@ class SpatialMemory:
             # === NOVO: PERSISTÊNCIA DO CONTRATO ===
             if 'active_contract' in db_mem and db_mem['active_contract'] is not None:
                 self.agent_memories[agent_id]['active_contract'] = db_mem['active_contract']
+                
+            # === NOVO: PERSISTÊNCIA DOS LOOTS IGNORADOS ===
+            if 'ignored_loots' in db_mem:
+                self.agent_memories[agent_id]['ignored_loots'] = db_mem['ignored_loots']
         except:
             pass

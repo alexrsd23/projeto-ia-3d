@@ -19,7 +19,7 @@ class InventorySystem:
             "stones": 0, 
             "fences": 0, 
             "gates": 0,        # <--- NOVO: Chave para os Portões
-            "plobs": 300.0
+            "plobs": 500.0
         }
         
         if not inventory_json:
@@ -78,3 +78,53 @@ class InventorySystem:
 
     def can_carry_fence(self, inv_dict):
         return inv_dict.get('fences', 0) < self.MAX_FENCES
+    
+    # === ADICIONE ISTO DENTRO DA CLASSE InventorySystem ===
+    def transfer_loot(self, agent_inv, loot_inv):
+        """
+        Transfere itens do loot para o agente, respeitando os limites da mochila do agente.
+        Retorna o inventário do agente atualizado, o loot atualizado e um booleano 
+        indicando se o saco de loot ficou completamente vazio.
+        """
+        # Mapeamento dinâmico dos limites por item
+        limits = {
+            "potatoes": self.MAX_POTATOES,
+            "seeds": self.MAX_SEEDS,
+            "logs": self.MAX_LOGS,
+            "stones": self.MAX_STONES,
+            "fences": self.MAX_FENCES,
+            "gates": self.MAX_GATES,
+            "plobs": float('inf') # Dinheiro não tem limite de peso
+        }
+        
+        items_transferred = False
+        
+        for item, amount_in_loot in list(loot_inv.items()):
+            if amount_in_loot > 0:
+                current_amount = agent_inv.get(item, 0)
+                max_capacity = limits.get(item, 0)
+                
+                # Se o limite do agente for maior que zero para este item (ex: Lenhador tem MAX_LOGS > 0)
+                # Ou se for Plobs (sem limite)
+                if max_capacity > 0:
+                    # Calcula quanto espaço livre o agente tem
+                    free_space = max_capacity - current_amount if max_capacity != float('inf') else float('inf')
+                    
+                    # Transfere apenas o que couber
+                    amount_to_transfer = min(amount_in_loot, free_space)
+                    
+                    if amount_to_transfer > 0:
+                        # Se for dinheiro, garante que mantém os decimais, senão converte para inteiro
+                        if item == "plobs":
+                            agent_inv[item] = round(current_amount + amount_to_transfer, 2)
+                            loot_inv[item] = round(amount_in_loot - amount_to_transfer, 2)
+                        else:
+                            agent_inv[item] = current_amount + int(amount_to_transfer)
+                            loot_inv[item] = amount_in_loot - int(amount_to_transfer)
+                            
+                        items_transferred = True
+
+        # Verifica se o saco ficou vazio (ignora chaves zeradas ou negativas)
+        is_empty = sum([val for val in loot_inv.values() if val > 0]) == 0
+        
+        return agent_inv, loot_inv, is_empty, items_transferred

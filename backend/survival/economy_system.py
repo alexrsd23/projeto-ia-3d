@@ -21,7 +21,7 @@ class EconomySystem:
             "gates": 28.0    # Custo(2 troncos + 4 pedras) = 24. Preço de Venda = 28
         }
         # Injeção de Capital! Impede que a economia quebre na primeira geração de construções
-        self.STARTING_PLOBS = 300.0
+        self.STARTING_PLOBS = 500.0
 
     @classmethod
     def register_scarcity(cls, item_type: str):

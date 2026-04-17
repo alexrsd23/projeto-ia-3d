@@ -122,16 +122,14 @@ def process_survival_tick(survival_brain, session):
             events.append({"id": str(uuid.uuid4()), "level": "INFO", "message": f"{agent_name} — {brain_log}", "timestamp": current_time})
 
         state_msg = survival_brain.agent_states.get(agent['id'], "IDLE")
-        raw_mem = survival_brain.memory_sys.agent_memories.get(agent['id'], {})
-        
-        # === CORREÇÃO 2: PERSISTÊNCIA REAL NO BANCO ===
-        # Salvamos as coordenadas reais convertendo a tupla (x,z) em string "x,z"
+        raw_mem_updated = survival_brain.memory_sys.agent_memories.get(agent['id'], {})
         safe_memory = {
-            "food": {f"{k[0]},{k[1]}": v for k, v in raw_mem.get('food', {}).items()},
-            "farms": {f"{k[0]},{k[1]}": v for k, v in raw_mem.get('farms', {}).items()},
-            "hazards": {f"{k[0]},{k[1]}": v for k, v in raw_mem.get('hazards', {}).items()},
-            "rejections": raw_mem.get('rejections', []),
-            "active_contract": raw_mem.get('active_contract') # <--- NOVO: Neo4j agora salva as obras
+            "food": {f"{k[0]},{k[1]}": v for k, v in raw_mem_updated.get('food', {}).items()},
+            "farms": {f"{k[0]},{k[1]}": v for k, v in raw_mem_updated.get('farms', {}).items()},
+            "hazards": {f"{k[0]},{k[1]}": v for k, v in raw_mem_updated.get('hazards', {}).items()},
+            "rejections": raw_mem_updated.get('rejections', []),
+            "active_contract": raw_mem_updated.get('active_contract'),
+            "ignored_loots": raw_mem_updated.get('ignored_loots', {}) # <--- NOVO: Salva os sacos ignorados
         }
         
         action_type_for_bio = "MOVE" if action == "MOVE" else ("ACTION" if action in ["HARVEST", "PLANT", "PLOW"] else "IDLE")
@@ -188,8 +186,16 @@ def process_survival_tick(survival_brain, session):
                     buyer_space = survival_brain.inventory_sys.MAX_LOGS - inv.get("logs", 0)
                     buyer_funds = inv.get("plobs", 0.0)
                     
-                    # Calcula quantos troncos ele consegue comprar de uma vez (limitado por espaço, estoque do lenhador e dinheiro)
-                    max_affordable = int(buyer_funds // unit_price) if unit_price > 0 else buyer_space
+                    # === NOVO: RESERVA DE EMERGÊNCIA (ANTI-ALAVANCAGEM SUICIDA) ===
+                    # Projeta o custo de 3 batatas na cotação atual do mercado para garantir a vida
+                    current_potato_price = economy.evaluate_item_value("potatoes", inv, 100.0, agent.get('lieLevel', 0))
+                    emergency_fund = current_potato_price * 3.0
+                    
+                    # O capital de risco é apenas o que sobra APÓS separar o dinheiro da comida
+                    disposable_funds = max(0.0, buyer_funds - emergency_fund)
+                    
+                    # Calcula a compra em lote baseada apenas no capital de risco
+                    max_affordable = int(disposable_funds // unit_price) if unit_price > 0 else buyer_space
                     qty_to_buy = min(seller_stock, buyer_space, max_affordable)
                     
                     if qty_to_buy > 0:
@@ -199,11 +205,12 @@ def process_survival_tick(survival_brain, session):
                             target_agent['inventoryJSON'] = survival_brain.inventory_sys.to_string(s_inv)
                             for up in updates_agents:
                                 if up['id'] == target_id: up['inv'] = target_agent['inventoryJSON']
-                            events.append({"id": str(uuid.uuid4()), "level": "SUCCESS", "message": f"🤝 LOTE B2B: {agent_name} comprou {qty_to_buy} Troncos de {target_agent.get('name')} por {unit_price * qty_to_buy:.2f} Plobs.", "timestamp": current_time})
+                            events.append({"id": str(uuid.uuid4()), "level": "SUCCESS", "message": f"🤝 LOTE B2B: {agent_name} investiu {unit_price * qty_to_buy:.2f} Plobs em {qty_to_buy} Troncos.", "timestamp": current_time})
                         else:
                             events.append({"id": str(uuid.uuid4()), "level": "WARNING", "message": f"❌ Liquidação em lote falhou: {msg}.", "timestamp": current_time})
                     else:
-                        events.append({"id": str(uuid.uuid4()), "level": "WARNING", "message": f"❌ Acordo fechado, mas {agent_name} não pode carregar os troncos ou o lenhador está zerado.", "timestamp": current_time})
+                        # Agora este log cobrirá perfeitamente quando ele abortar a compra para não morrer de fome
+                        events.append({"id": str(uuid.uuid4()), "level": "WARNING", "message": f"❌ Lote abortado: {agent_name} limitou a compra por falta de espaço, lenhador zerado ou para preservar seu Fundo de Emergência.", "timestamp": current_time})
                 else:
                     events.append({"id": str(uuid.uuid4()), "level": "WARNING", "message": f"💸 Falha de Mercado: {agent_name} achou a madeira muito cara.", "timestamp": current_time})
                     EconomySystem.register_scarcity("logs")
@@ -236,7 +243,7 @@ def process_survival_tick(survival_brain, session):
                         if up['id'] == customer['id']: up['inv'] = customer['inventoryJSON']
                             
                     new_gate = {
-                        "id": str(uuid.uuid4()), "type": "gate", "posX": tx, "posY": 0.5, "posZ": tz,
+                        "id": str(uuid.uuid4()), "type": "gate", "posX": tx, "posY": -0.5, "posZ": tz,
                         "health": 100.0, "hunger": 0.0, "name": "Portão", "inventoryJSON": "{}", "memoryJSON": "{}", "state": "IDLE"
                     }
                     new_entities_to_create.append(new_gate)
@@ -301,7 +308,7 @@ def process_survival_tick(survival_brain, session):
                             
                     # Criação Física da Cerca
                     new_fence = {
-                        "id": str(uuid.uuid4()), "type": "fence", "posX": tx, "posY": 0.5, "posZ": tz,
+                        "id": str(uuid.uuid4()), "type": "fence", "posX": tx, "posY": -0.5, "posZ": tz,
                         "health": 100.0, "hunger": 0.0, "name": "Cerca", "inventoryJSON": "{}", "memoryJSON": "{}", "state": "IDLE"
                     }
                     new_entities_to_create.append(new_fence)
@@ -353,58 +360,55 @@ def process_survival_tick(survival_brain, session):
                     updates_agents.append({"id": target_id, "type": "fence", "x": target_entity['x'], "z": target_entity['z'], "hp": fence_new_hp, "hunger": 0, "age": target_entity.get('age', 0), "inv": "{}", "mem": "{}", "state": "IDLE"})
                     world_entities = [e for e in world_entities if e['id'] != target_id]
                 
-        # === O MOTOR DE CASAMENTO (SOCIOLOGIA & GENÉTICA) ===
+      # === O MOTOR DE CASAMENTO (SOCIOLOGIA & GENÉTICA) ===
         elif action == "PROPOSE_MARRIAGE":
             agent_a = agent['id']
             agent_b = target_id
             
-            if agent_a < agent_b: 
+            # Substituímos o 'continue' problemático por 'pass' para não pular o salvamento de memória!
+            if agent.get('married', False):
+                pass 
+            else:
                 try:
                     # 1. VALIDAÇÃO DE CONSANGUINIDADE (TABU GENÉTICO)
                     query_incest = """
                     MATCH (a:Entity {id: $idA}), (b:Entity {id: $idB})
-                    // Padrão 1 e 2: Ascendentes ou Descendentes diretos (infinito)
                     OPTIONAL MATCH p1=(a)-[:PARENT_OF*1..]->(b)
                     OPTIONAL MATCH p2=(b)-[:PARENT_OF*1..]->(a)
-                    // Padrão 3: Irmãos (partilham um parente que aponta para os dois)
                     OPTIONAL MATCH p3=(a)<-[:PARENT_OF]-()-[:PARENT_OF]->(b)
-                    // Padrão 4 e 5: Tio(a) e Sobrinho(a)
                     OPTIONAL MATCH p4=(a)<-[:PARENT_OF]-()-[:PARENT_OF]-()-[:PARENT_OF]->(b)
                     OPTIONAL MATCH p5=(b)<-[:PARENT_OF]-()-[:PARENT_OF]-()-[:PARENT_OF]->(a)
-                    // Se qualquer um dos caminhos existir, é incesto
                     RETURN (p1 IS NOT NULL OR p2 IS NOT NULL OR p3 IS NOT NULL OR p4 IS NOT NULL OR p5 IS NOT NULL) AS is_incest
                     """
                     incest_check = session.run(query_incest, idA=agent_a, idB=agent_b).single()
                     
                     if incest_check and incest_check["is_incest"]:
-                        # A Natureza interveio!
                         events.append({"id": str(uuid.uuid4()), "level": "ERROR", "message": f"🧬 TABU GENÉTICO: A biologia impediu o flerte! {agent_name} e o alvo são parentes próximos.", "timestamp": current_time})
                         
-                        # Grava na memória dos DOIS para eles nunca mais tentarem o absurdo
+                        # Grava na memória e cai graciosamente para o bloco de salvamento no fim do loop
                         survival_brain.memory_sys._ensure_agent(agent_a)
                         survival_brain.memory_sys._ensure_agent(agent_b)
                         survival_brain.memory_sys.agent_memories[agent_a]['rejections'].append(agent_b)
                         survival_brain.memory_sys.agent_memories[agent_b]['rejections'].append(agent_a)
-                        continue # Aborta a ação deste tick
-                    
-                    # 2. SE A GENÉTICA PERMITIR, EXECUTA O CASAMENTO:
-                    query_marry = """
-                    MATCH (a:Entity {id: $idA}), (b:Entity {id: $idB})
-                    WHERE coalesce(a.married, false) = false AND coalesce(b.married, false) = false AND a.type = b.type
-                    MERGE (a)-[r:MARRIED_TO]-(b)
-                    SET a.married = true, b.married = true
-                    RETURN a.name AS nameA, b.name AS nameB
-                    """
-                    result = session.run(query_marry, idA=agent_a, idB=agent_b).data()
-                    
-                    if result:
-                        name_a = result[0]['nameA']
-                        name_b = result[0]['nameB']
-                        events.append({"id": str(uuid.uuid4()), "level": "SUCCESS", "message": f"💍 CASAMENTO: {name_a} e {name_b} casaram-se no meio da simulação!", "timestamp": current_time})
-                        for a in agents:
-                            if a['id'] == agent_a or a['id'] == agent_b:
-                                a['married'] = True
-                                
+                    else:
+                        # 2. SE A GENÉTICA PERMITIR, EXECUTA O CASAMENTO:
+                        query_marry = """
+                        MATCH (a:Entity {id: $idA}), (b:Entity {id: $idB})
+                        WHERE coalesce(a.married, false) = false AND coalesce(b.married, false) = false AND a.type = b.type
+                        MERGE (a)-[r:MARRIED_TO]-(b)
+                        SET a.married = true, b.married = true
+                        RETURN a.name AS nameA, b.name AS nameB
+                        """
+                        result = session.run(query_marry, idA=agent_a, idB=agent_b).data()
+                        
+                        if result:
+                            name_a = result[0]['nameA']
+                            name_b = result[0]['nameB']
+                            events.append({"id": str(uuid.uuid4()), "level": "SUCCESS", "message": f"💍 CASAMENTO: {name_a} e {name_b} casaram-se no meio da simulação!", "timestamp": current_time})
+                            for a in agents:
+                                if a['id'] == agent_a or a['id'] == agent_b:
+                                    a['married'] = True
+                                    
                 except Exception as e:
                     events.append({"id": str(uuid.uuid4()), "level": "WARNING", "message": f"💔 Erro no banco durante o casamento: {str(e)}", "timestamp": current_time})
         
@@ -413,13 +417,15 @@ def process_survival_tick(survival_brain, session):
             agent_a_id = agent['id']
             agent_b_id = target_id
             
-            if agent_a_id < agent_b_id: # Garante que só o parceiro A paga a conta e gera o filho
-                partner = next((a for a in agents if a['id'] == agent_b_id), None)
-                if partner:
+            partner = next((a for a in agents if a['id'] == agent_b_id), None)
+            if partner:
+                if new_hunger < 70.0:
+                    events.append({"id": str(uuid.uuid4()), "level": "INFO", "message": f"⏳ {agent_name} cedeu a iniciativa romântica ao parceiro neste ciclo.", "timestamp": current_time})
+                    pass # Removido o 'continue' para não burlar o salvamento!
+                else:
                     p_inv = survival_brain.inventory_sys.parse(partner.get('inventoryJSON', "{}"))
                     a_type = agent['type']
                     
-                    # 1. VALIDAÇÃO DE PAGAMENTO: Ambos precisam ter o recurso para pagar a sua metade!
                     both_can_afford = False
                     if a_type == 'farmer' and inv.get('potatoes', 0) >= 2 and p_inv.get('potatoes', 0) >= 2:
                         inv['potatoes'] -= 2
@@ -435,24 +441,21 @@ def process_survival_tick(survival_brain, session):
                         both_can_afford = True
                         
                     if both_can_afford:
-                        # 2. O CUSTO BIOLÓGICO: Ter um filho consome 25% da barra de fome de ambos!
-                        new_hunger = max(0, new_hunger - 25.0)
-                        partner['hunger'] = max(0, float(partner.get('hunger', 100)) - 25.0)
+                        # O CUSTO BIOLÓGICO: Ter um filho consome 25% da barra de fome de ambos!
+                        new_hunger = max(0.0, new_hunger - 25.0)
+                        partner['hunger'] = max(0.0, float(partner.get('hunger', 100)) - 25.0)
                         
-                        # Atualiza o inventário do parceiro na RAM e no objeto de gravação
                         partner['inventoryJSON'] = survival_brain.inventory_sys.to_string(p_inv)
                         for up in updates_agents:
                             if up['id'] == agent_b_id:
                                 up['hunger'] = partner['hunger']
                                 up['inv'] = partner['inventoryJSON']
                                 
-                        # 3. MISTURA DE DNA (MENDEL 2.0)
                         child_dna = biology.mix_dna(agent, partner)
                         child_id = str(uuid.uuid4())
                         child_name = f"{child_dna['profession']} {child_id[:2].upper()}"
                         
                         try:
-                            # 4. CRIAÇÃO NO NEO4J (O Alicerce da Árvore Genealógica!)
                             query_birth = """
                             MATCH (mom:Entity {id: $mom_id}), (dad:Entity {id: $dad_id})
                             CREATE (child:Entity {
@@ -462,7 +465,6 @@ def process_survival_tick(survival_brain, session):
                                 trustLevel: $trust, lieLevel: $lie, married: false, age: 0,
                                 inventoryJSON: "{}", memoryJSON: "{}", state: "IDLE"
                             })
-                            // Cria as setas de parentesco para a nossa futura UI ler!
                             CREATE (mom)-[:PARENT_OF]->(child)
                             CREATE (dad)-[:PARENT_OF]->(child)
                             CREATE (child)-[:CHILD_OF]->(mom)
@@ -481,6 +483,10 @@ def process_survival_tick(survival_brain, session):
                             events.append({"id": str(uuid.uuid4()), "level": "ERROR", "message": f"Erro no parto: {str(e)}", "timestamp": current_time})
                     else:
                         events.append({"id": str(uuid.uuid4()), "level": "WARNING", "message": f"🚫 Tentativa de gravidez falhou: {agent_name} ou parceiro não têm os recursos materiais exigidos!", "timestamp": current_time})
+                        # === CORREÇÃO DE ESTADO CRÍTICO (ANTI-LOOP DE GRAVIDEZ) ===
+                        # Agente regista o cônjuge falido na lista de boicotes e ignora-o durante 50 ticks
+                        survival_brain.memory_sys._ensure_agent(agent_a_id)
+                        survival_brain.memory_sys.agent_memories[agent_a_id].setdefault('boycotts', {})[agent_b_id] = current_tick
 
         elif action == "RESERVE_PLOT":
             blueprint = target_id # O blueprint foi passado no parâmetro target_id
@@ -565,16 +571,31 @@ def process_survival_tick(survival_brain, session):
                 # O Saco de Loot tem uma mochila virtual
                 loot_inv = survival_brain.inventory_sys.parse(target_entity.get('inventoryJSON', "{}"))
                 
-                # Transfere tudo para o agente vivo
-                inv['plobs'] = inv.get('plobs', 0.0) + loot_inv.get('plobs', 0.0)
-                inv['potatoes'] = inv.get('potatoes', 0) + loot_inv.get('potatoes', 0)
+                # === NOVO: TRANSFERÊNCIA DINÂMICA ===
+                inv, new_loot_inv, is_empty, transferred = survival_brain.inventory_sys.transfer_loot(inv, loot_inv)
                 
-                events.append({"id": str(uuid.uuid4()), "level": "SUCCESS", "message": f"💰 {agent_name} recolheu {loot_inv.get('plobs', 0.0)} Plobs de um espólio!", "timestamp": current_time})
-                
-                # Marca o saco de loot para ser deletado do banco de dados
-                dead_agents.append(target_id)
-                # Remove da memória visual para não tentarem saquear de novo neste tick
-                world_entities = [e for e in world_entities if e['id'] != target_id]
+                if transferred:
+                    events.append({"id": str(uuid.uuid4()), "level": "SUCCESS", "message": f"💰 {agent_name} vasculhou um espólio e pegou o que conseguia carregar!", "timestamp": current_time})
+                    
+                    if is_empty:
+                        # O saco secou. Marca para apagar do banco.
+                        dead_agents.append(target_id)
+                        world_entities = [e for e in world_entities if e['id'] != target_id]
+                    else:
+                        # Ainda sobrou coisa (ex: pedras, e o fazendeiro não pôde carregar)
+                        target_entity['inventoryJSON'] = survival_brain.inventory_sys.to_string(new_loot_inv)
+                        # Atualiza o saco no banco de dados para os outros poderem pegar o resto
+                        updates_agents.append({
+                            "id": target_id, "type": "loot", "x": target_entity['x'], "z": target_entity['z'], 
+                            "hp": 0, "hunger": 0, "age": target_entity.get('age', 0), 
+                            "inv": target_entity['inventoryJSON'], "mem": "{}", "state": "IDLE"
+                        })
+                else:
+                    events.append({"id": str(uuid.uuid4()), "level": "WARNING", "message": f"🎒 {agent_name} revistou um espólio, mas já tem a mochila cheia ou não é compatível com os itens.", "timestamp": current_time})
+                    
+                    # === CORREÇÃO: O Agente memoriza que este saco é inútil para ele e ignora-o ===
+                    survival_brain.memory_sys._ensure_agent(agent['id'])
+                    survival_brain.memory_sys.agent_memories[agent['id']].setdefault('ignored_loots', {})[target_id] = current_tick
 
         elif action == "CHOP_TREE":
             target_entity = next((e for e in world_entities if e['id'] == target_id), None)
@@ -696,6 +717,16 @@ def process_survival_tick(survival_brain, session):
                 buyer_inv_dict = inv 
                 seller_inv_dict = survival_brain.inventory_sys.parse(target_agent.get('inventoryJSON', "{}"))
                 
+                # === CORREÇÃO: PROTEÇÃO DE SUBSISTÊNCIA DO VENDEDOR ===
+                # Um Fazendeiro nunca vende batatas se tiver 3 ou menos (precisa delas para comer e plantar)
+                if target_agent.get('type') == 'farmer' and seller_inv_dict.get('potatoes', 0) <= 3:
+                     events.append({"id": str(uuid.uuid4()), "level": "WARNING", "message": f"🚫 {target_agent.get('name', 'Vendedor')} recusou a venda! Não possui excedente de batatas para exportação.", "timestamp": current_time})
+                     # O comprador regista o boicote para não chatear este vendedor temporariamente
+                     survival_brain.memory_sys._ensure_agent(agent['id'])
+                     survival_brain.memory_sys.agent_memories[agent['id']].setdefault('boycotts', {})[target_id] = current_tick
+                     continue # Aborta a ação neste tick
+                     
+                # O resto do código do TRADE continua igual a partir daqui...
                 buyer_data = {
                     "inventoryJSON": buyer_inv_dict,
                     "hunger": agent.get('hunger', 100),
@@ -750,7 +781,20 @@ def process_survival_tick(survival_brain, session):
                     survival_brain.memory_sys._ensure_agent(agent['id'])
                     survival_brain.memory_sys.agent_memories[agent['id']].setdefault('boycotts', {})[target_id] = current_tick
 
-       # Adiciona a memória e estado ao pacote de atualização (PARA OS VIVOS)
+       # === CORREÇÃO DEFINITIVA: FOTOGRAFIA PÓS-AÇÃO ===
+        # Recalcula a memória do agente para garantir que as deleções (ex: FINISH_CONTRACT, casamentos rejeitados)
+        # sejam atualizadas e reflitam no salvamento do banco de dados, matando os "fantasmas" no Neo4j.
+        raw_mem_final = survival_brain.memory_sys.agent_memories.get(agent['id'], {})
+        safe_memory_final = {
+            "food": {f"{k[0]},{k[1]}": v for k, v in raw_mem_final.get('food', {}).items()},
+            "farms": {f"{k[0]},{k[1]}": v for k, v in raw_mem_final.get('farms', {}).items()},
+            "hazards": {f"{k[0]},{k[1]}": v for k, v in raw_mem_final.get('hazards', {}).items()},
+            "rejections": raw_mem_final.get('rejections', []),
+            "active_contract": raw_mem_final.get('active_contract'),
+            "ignored_loots": raw_mem_final.get('ignored_loots', {})
+        }
+
+        # Adiciona a memória e estado ao pacote de atualização (PARA OS VIVOS)
         updates_agents.append({
             "id": agent['id'],
             "type": agent['type'], # <-- Mantém a profissão original intacta!
@@ -758,7 +802,7 @@ def process_survival_tick(survival_brain, session):
             "hp": new_hp, "hunger": new_hunger,
             "age": agent.get('age', 0), # <--- GRAVAR A IDADE AQUI PARA OS VIVOS
             "inv": survival_brain.inventory_sys.to_string(inv),
-            "mem": json.dumps(safe_memory),
+            "mem": json.dumps(safe_memory_final), # <-- USA A FOTOGRAFIA NOVA
             "state": state_msg
         })
         

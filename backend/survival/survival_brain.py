@@ -185,9 +185,13 @@ class SurvivalController:
                     my_sex = agent.get('sex', 'M')
                     target_sex = 'F' if my_sex == 'M' else 'M'
                     
+                    # === NOVO: Filtra parceiros falidos usando o sistema de boicote ===
+                    my_boycotts = self.memory_sys.agent_memories.get(agent_id, {}).get('boycotts', {})
+                    active_boycotts = [b_id for b_id, tick in my_boycotts.items() if current_tick - tick < 50]
+                    
                     spouses = [
                         p for p in radar_data.get('other_agents', [])
-                        if p['type'] == agent_type and p.get('married', False) == True and p.get('sex') == target_sex
+                        if p['type'] == agent_type and p.get('married', False) == True and p.get('sex') == target_sex and p['id'] not in active_boycotts
                     ]
                     
                     if spouses:
@@ -198,6 +202,26 @@ class SurvivalController:
                         else:
                             self.agent_states[agent_id] = "COURTING"
                             return self._move_towards(agent_pos, (spouse['x'], spouse['z']), blocked_coords, f"Indo encontrar {spouse['name']} para ter um filho.")
+                        
+        # === PRIORIDADE 1: A OPORTUNIDADE DE OURO (LOOT) ===
+        # Antes de pensar em fome ou trabalho, se houver um saco morto no chão e ele não tiver um lobo a persegui-lo, ele vai lá ver!
+        if agent_type != 'wolf' and radar_data.get('loots'):
+            
+            # === CORREÇÃO ESTRUTURAL: Filtrar loots que o agente já sabe que não pode carregar ===
+            my_ignored_loots = self.memory_sys.agent_memories.get(agent_id, {}).get('ignored_loots', {})
+            # Ignora o saco por 100 ticks (~25 segundos). Tempo suficiente para ir embora e fazer outra coisa.
+            valid_loots = [l for l in radar_data['loots'] if current_tick - my_ignored_loots.get(l['id'], -999) > 100]
+            
+            if valid_loots:
+                target_loot = valid_loots[0]
+                if target_loot['dist'] <= 3.0:
+                    self.agent_states[agent_id] = "LOOTING"
+                    return ("LOOT", agent_pos[0], agent_pos[1], target_loot['id'], "Vasculhando os pertences caídos no chão.")
+                
+                # Se não estiver a morrer de fome no exato momento, ele desvia a rota para ir saquear
+                if not is_critical:
+                    self.agent_states[agent_id] = "SEEK_LOOT"
+                    return self._move_towards(agent_pos, (target_loot['x'], target_loot['z']), blocked_coords, "Viu pertences no chão! Indo investigar.")
         
         # === PRIORIDADE 0: AUTO-REGULAÇÃO (Comer) ===
         if hunger < 60.0 and self.inventory_sys.has_food(inv):
@@ -226,10 +250,12 @@ class SurvivalController:
                     if dist_to_plot > 4.0:
                         return self._move_towards(agent_pos, (center_x, center_z), blocked_coords, "Faminto! Retornando à minha fazenda em busca de comida.")
                     else:
-                        # === O FIM DO VAGAR INÚTIL ===
-                        # Se chegou à fazenda e não há comida no radar, é porque as batatas ainda estão a crescer. Ele ESPERA!
-                        self.agent_states[agent_id] = "WAITING_CROP"
-                        return ("MOVE", agent_pos[0], agent_pos[1], None, "Faminto! Esperando a colheita crescer na minha fazenda...")
+                        # === CORREÇÃO DE ESTADO CRÍTICO (ANTI-INANIÇÃO) ===
+                        # Se a fome ainda é apenas moderada (>= 25), ele senta e espera a colheita.
+                        # Se for crítica (< 25), ele quebra o acampamento e avança para o Mercado/Hipocampo!
+                        if not is_critical:
+                            self.agent_states[agent_id] = "WAITING_CROP"
+                            return ("MOVE", agent_pos[0], agent_pos[1], None, "Fome moderada. Esperando a colheita crescer na minha fazenda...")
 
                 # C) O Hipocampo: Tenta lembrar de batatas selvagens
                 best_mem = self.memory_sys.get_best_food_source(agent_id, agent_pos)
@@ -240,8 +266,22 @@ class SurvivalController:
                         return self._wander(agent_pos, blocked_coords, "Alguém comeu a batata que estava aqui! Procurando...")
                     return self._move_towards(agent_pos, best_mem, blocked_coords, "Lembrando de um local com comida selvagem...")
 
-                # D) Sobrevivência Bruta: Vaga pelo mapa rezando para achar algo
-                return self._wander(agent_pos, blocked_coords, "Faminto e perdido! Vagueando em busca de recursos selvagens.")
+                # === NOVO: PLANO D (MERCADO INTERNO ENTRE FAZENDEIROS) ===
+                # Quebra de monopólio e falência biológica: Tenta comprar de um colega fazendeiro.
+                my_boycotts = self.memory_sys.agent_memories.get(agent_id, {}).get('boycotts', {})
+                active_boycotts = [f_id for f_id, tick_banned in my_boycotts.items() if current_tick - tick_banned < 50]
+                
+                peer_farmers = [p for p in radar_data.get('other_agents', []) if p['type'] == 'farmer' and p['id'] not in active_boycotts]
+                
+                if peer_farmers and inv.get('plobs', 0.0) > 0.0:
+                    self.agent_states[agent_id] = "SEEK_TRADE"
+                    target_farmer = peer_farmers[0]
+                    if target_farmer['dist'] <= 3.0:
+                        return ("TRADE", agent_pos[0], agent_pos[1], target_farmer['id'], f"Desesperado! Negociando comida com o colega {target_farmer['name']}.")
+                    return self._move_towards(agent_pos, (target_farmer['x'], target_farmer['z']), blocked_coords, f"Perseguindo {target_farmer['name']} para comprar batatas do estoque dele.")
+
+                # E) Sobrevivência Bruta: Vaga pelo mapa rezando para achar algo
+                return self._wander(agent_pos, blocked_coords, "Faminto e perdido! Vagueando em busca de recursos ou vendedores.")
             
             else:
                 # (Mantenha o código do SEEK_TRADE do Lenhador/Construtor exatamente como estava aqui...)
@@ -315,22 +355,37 @@ class SurvivalController:
                         if not missing_coords:
                             return ("FINISH_CONTRACT", agent_pos[0], agent_pos[1], None, "Obra concluída! A fazenda do cliente está 100% protegida.")
                         
-                        # Regra: Só precisa de 1 portão. Se não tem portão, a prioridade é instalá-lo!
+                        # === NOVO: MATRIZ DE EXCLUSÃO DE QUINAS ===
+                        # Identifica os 4 vértices exatos do lote
+                        corners = [
+                            (p_start_x, p_start_z),
+                            (p_max_x, p_start_z),
+                            (p_start_x, p_max_z),
+                            (p_max_x, p_max_z)
+                        ]
+                        
                         needs_gate = len(built_gates) == 0
                         
                         if needs_gate:
                             if inv.get('gates', 0) > 0:
                                 self.agent_states[agent_id] = "BUILDING"
-                                target = missing_coords[0] # Instala no primeiro buraco disponível
+                                
+                                # Filtra as coordenadas válidas, proibindo a instalação nas quinas
+                                valid_gate_coords = [c for c in missing_coords if c not in corners]
+                                
+                                # Garante centralização visual nas paredes retas
+                                target = valid_gate_coords[0] if valid_gate_coords else missing_coords[0]
+                                
                                 dist = math.hypot(target[0] - agent_pos[0], target[1] - agent_pos[1])
                                 if dist <= 3.0:
-                                    return ("BUILD_NEW_GATE", agent_pos[0], agent_pos[1], {"x": target[0], "z": target[1], "plot_id": plot_id}, "Instalando o portão principal.")
+                                    return ("BUILD_NEW_GATE", agent_pos[0], agent_pos[1], {"x": target[0], "z": target[1], "plot_id": plot_id}, "Instalando o portão principal na lateral do terreno.")
                                 return self._move_towards(agent_pos, target, blocked_coords, "Indo instalar o portão do cliente.")
                             else:
                                 if inv.get('logs', 0) >= 2 and inv.get('stones', 0) >= 4:
                                     self.agent_states[agent_id] = "CRAFTING"
                                     return ("CRAFT_GATE", agent_pos[0], agent_pos[1], None, "Fabricando Portão (2 Troncos, 4 Pedras).")
                         else:
+                            # (O bloco das Cercas continua igual daqui em diante)
                             if inv.get('fences', 0) > 0:
                                 self.agent_states[agent_id] = "BUILDING"
                                 missing_coords.sort(key=lambda c: math.hypot(c[0]-agent_pos[0], c[1]-agent_pos[1]))
@@ -380,10 +435,46 @@ class SurvivalController:
                 
                 return self._wander(agent_pos, blocked_coords, "Mochila cheia. Aguardando novos contratos de obras.")
                     
-            elif agent_type == 'farmer' and (self.inventory_sys.has_seeds(inv) or any(c['dist'] <= 3.0 for c in radar_data.get('food_ready', []))):
+            elif agent_type == 'farmer':
+                # === NOVO: INSTINTO PRIMÁRIO DE FORRAGEAMENTO E CAPITAL SEMENTE ===
+                # Um fazendeiro saciado, mas sem sementes, não deve vagar inutilmente.
+                # Ele deve priorizar a extração gratuita na natureza antes de gastar capital.
+                if not self.inventory_sys.has_seeds(inv):
+                    
+                    # 1. Visão de Longo Alcance: Existe alguma batata madura no radar completo?
+                    if radar_data.get('food_ready'):
+                        self.agent_states[agent_id] = "FORAGING"
+                        target = radar_data['food_ready'][0]
+                        # Se chegou ao alvo, colhe imediatamente
+                        if target['dist'] <= 3.0:
+                            return ("HARVEST", agent_pos[0], agent_pos[1], target['tile_id'], "Oportunidade! Colhendo recurso selvagem para extrair capital semente.")
+                        # Se viu ao longe, avança em direção a ele
+                        return self._move_towards(agent_pos, (target['x'], target['z']), blocked_coords, "Avançando para colher batata selvagem avistada no horizonte.")
+                    
+                    # 2. Mercado Secundário: Não há recursos naturais livres, tenta o capital financeiro.
+                    if inv.get('plobs', 0.0) > 0.0:
+                        self.agent_states[agent_id] = "SEEK_SEED_CAPital"
+                        
+                        my_boycotts = self.memory_sys.agent_memories.get(agent_id, {}).get('boycotts', {})
+                        active_boycotts = [f_id for f_id, tick_banned in my_boycotts.items() if current_tick - tick_banned < 50]
+                        
+                        peer_farmers = [p for p in radar_data.get('other_agents', []) if p['type'] == 'farmer' and p['id'] not in active_boycotts]
+                        
+                        if peer_farmers:
+                            target_farmer = peer_farmers[0]
+                            if target_farmer['dist'] <= 3.0:
+                                return ("TRADE", agent_pos[0], agent_pos[1], target_farmer['id'], f"Investindo: Comprando batatas de {target_farmer['name']} para extrair sementes!")
+                            return self._move_towards(agent_pos, (target_farmer['x'], target_farmer['z']), blocked_coords, f"Perseguindo {target_farmer['name']} para comprar capital semente.")
+                        else:
+                            return self._wander(agent_pos, blocked_coords, "Sem sementes e sem recursos visíveis. Procurando vendedores de excedente.")
+                    else:
+                        return self._wander(agent_pos, blocked_coords, "Falido e sem sementes. Vagando pelo mapa à espera de um milagre.")
+
+                # === TRABALHO NORMAL DE CAMPO ===
+                # O código original continua a partir daqui, gerindo o plantio, aragem e planeamento do lote...
                 self.agent_states[agent_id] = "FARMER"
                 
-                # 1. PRIORIDADE LOCAL: Se há comida madura AO ALCANCE, colhe primeiro para limpar o terreno
+                # 1. PRIORIDADE LOCAL: Se há comida madura AO ALCANCE (no seu terreno), colhe primeiro
                 if radar_data.get('food_ready'):
                     target = radar_data['food_ready'][0]
                     if target['dist'] <= 3:
@@ -580,6 +671,48 @@ class SurvivalController:
 
     # === ALGORITMO DE DESVIO E NAVEGAÇÃO ===
     def _move_towards(self, current, target, blocked_coords, log_msg=None):
+        # --- ALGORITMO PATHFINDING (BFS/A* Híbrido) PARA DESVIO INTELIGENTE ---
+        # Garante que o agente contorne cercas e árvores para alcançar o alvo,
+        # erradicando loops de colisão.
+        start = (round(current[0]), round(current[1]))
+        goal = (round(target[0]), round(target[1]))
+        
+        queue = [(start, [])]
+        visited = set([start])
+        
+        # Movimentos possíveis na malha (4 retas, 4 diagonais)
+        moves = [(0, -2), (0, 2), (-2, 0), (2, 0), (2, 2), (-2, -2), (2, -2), (-2, 2)]
+        
+        nodes_evaluated = 0
+        MAX_NODES = 250 # Proteção de CPU: Varre uma área grande o suficiente para contornar qualquer fazenda
+        
+        while queue and nodes_evaluated < MAX_NODES:
+            (cx, cz), path = queue.pop(0)
+            nodes_evaluated += 1
+            
+            # Condição de Sucesso: Chegou perto o suficiente do alvo (raio de coleta <= 3.0, mas checamos <= 2.0 para o passo)
+            if math.hypot(goal[0] - cx, goal[1] - cz) <= 2.0:
+                if path:
+                    return ("MOVE", path[0][0], path[0][1], None, log_msg)
+                break # Já está na origem colado ao alvo, cai para o fallback de descolagem
+                
+            # Heurística A*: Ordena movimentos priorizando a direção matemática do objetivo
+            # Isso acelera a busca e gera caminhos naturais (menos robóticos)
+            moves.sort(key=lambda m: math.hypot(goal[0] - (cx+m[0]), goal[1] - (cz+m[1])))
+            
+            for mx, mz in moves:
+                nx = max(-24, min(24, cx + mx))
+                nz = max(-24, min(24, cz + mz))
+                neighbor = (nx, nz)
+                
+                if neighbor not in visited:
+                    # Usa a validação de colisão e anti-ghosting da engine principal
+                    if self._is_move_valid((cx, cz), nx, nz, mx, mz, blocked_coords):
+                        visited.add(neighbor)
+                        queue.append((neighbor, path + [neighbor]))
+                        
+        # === FALLBACK GULOSO E ANTI-TRAVAMENTO ===
+        # Se estourar o limite de nós (labirinto fechado sem saída), tenta forçar a aproximação
         dx = target[0] - current[0]
         dz = target[1] - current[1]
         
@@ -588,7 +721,6 @@ class SurvivalController:
         
         moves_to_try = []
         if best_x != 0 and best_z != 0:
-            # Tenta diagonal, se bater em cerca (quina), tenta escorregar reto para o lado
             moves_to_try = [(best_x, best_z), (best_x, 0), (0, best_z)]
         else:
             moves_to_try = [(best_x, best_z)]
@@ -603,7 +735,10 @@ class SurvivalController:
             if self._is_move_valid(current, nx, nz, mx, mz, blocked_coords):
                 return ("MOVE", nx, nz, None, log_msg)
                 
-        return ("MOVE", current[0], current[1], None, (log_msg or "") + " (Caminho bloqueado!)")
+        # === A CURA DO LOOP ===
+        # Se até o caminho reto falhar e ele estiver colado numa parede, ele NÃO pode ficar parado. 
+        # Ele aciona o Wander para dar um "passo para trás/lado" e descolar da zona de bloqueio!
+        return self._wander(current, blocked_coords, (log_msg or "") + " (Buscando rota alternativa para contornar...)")
         
     def _wander(self, current, blocked_coords, log_msg=None):
         moves = [(0, -2), (0, 2), (-2, 0), (2, 0), (2, 2), (-2, -2), (2, -2), (-2, 2)]
