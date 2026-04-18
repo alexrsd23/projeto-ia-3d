@@ -438,7 +438,6 @@ class SurvivalController:
             elif agent_type == 'farmer':
                 # === NOVO: INSTINTO PRIMÁRIO DE FORRAGEAMENTO E CAPITAL SEMENTE ===
                 # Um fazendeiro saciado, mas sem sementes, não deve vagar inutilmente.
-                # Ele deve priorizar a extração gratuita na natureza antes de gastar capital.
                 if not self.inventory_sys.has_seeds(inv):
                     
                     # 1. Visão de Longo Alcance: Existe alguma batata madura no radar completo?
@@ -451,7 +450,13 @@ class SurvivalController:
                         # Se viu ao longe, avança em direção a ele
                         return self._move_towards(agent_pos, (target['x'], target['z']), blocked_coords, "Avançando para colher batata selvagem avistada no horizonte.")
                     
-                    # 2. Mercado Secundário: Não há recursos naturais livres, tenta o capital financeiro.
+                    # === NOVA MECÂNICA: O CICLO AGRÍCOLA FECHADO ===
+                    # 2. Se ele JÁ TEM batatas no bolso (comprou ou sobrou), ele deve transformá-las em sementes!
+                    if self.inventory_sys.has_food(inv):
+                        self.agent_states[agent_id] = "CRAFTING"
+                        return ("CRAFT_SEED", agent_pos[0], agent_pos[1], None, "Extraindo sementes das batatas do inventário.")
+
+                    # 3. Mercado Secundário: Não tem sementes, não tem batatas e não há nada selvagem. Tenta comprar com dinheiro.
                     if inv.get('plobs', 0.0) > 0.0:
                         self.agent_states[agent_id] = "SEEK_SEED_CAPital"
                         
@@ -471,7 +476,6 @@ class SurvivalController:
                         return self._wander(agent_pos, blocked_coords, "Falido e sem sementes. Vagando pelo mapa à espera de um milagre.")
 
                 # === TRABALHO NORMAL DE CAMPO ===
-                # O código original continua a partir daqui, gerindo o plantio, aragem e planeamento do lote...
                 self.agent_states[agent_id] = "FARMER"
                 
                 # 1. PRIORIDADE LOCAL: Se há comida madura AO ALCANCE (no seu terreno), colhe primeiro

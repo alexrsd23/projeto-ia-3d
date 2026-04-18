@@ -104,6 +104,16 @@ def process_survival_tick(survival_brain, session):
     for agent in agents:
         inv = survival_brain.inventory_sys.parse(agent.get('inventoryJSON', "{}"))
         
+        # === NOVA MECÂNICA: ENTROPIA BIOLÓGICA (APODRECIMENTO) ===
+        # A cada tick, há 0.1% de chance de UMA batata apodrecer no inventário (se existir).
+        # Isso força os fazendeiros a venderem o excedente rápido ou plantarem,
+        # impedindo a inflação estagnada de "bilionários da batata".
+        if inv.get('potatoes', 0) > 0 and random.random() < 0.001:
+            inv['potatoes'] -= 1
+            agent_name_for_rot = agent.get('name', f"Agente {agent['id'][:4]}")
+            current_time_for_rot = datetime.now().strftime("%H:%M:%S")
+            events.append({"id": str(uuid.uuid4()), "level": "WARNING", "message": f"🪰 ENTROPIA: Uma batata apodreceu na mochila de {agent_name_for_rot}!", "timestamp": current_time_for_rot})
+            
         # === CORREÇÃO 1: Restaura a Memória real do Neo4j para a RAM ===
         if agent.get('memoryJSON') and agent['memoryJSON'] != "{}":
             survival_brain.memory_sys.load_from_db(agent['id'], agent['memoryJSON'])
@@ -261,6 +271,14 @@ def process_survival_tick(survival_brain, session):
                 recovered = biology.consume_food({'hunger': new_hunger, 'hp': new_hp})
                 new_hunger, new_hp = recovered['hunger'], recovered['hp']
                 events.append({"id": str(uuid.uuid4()), "level": "WARNING", "message": f"{agent_name} — Inventário: Consumiu 1 batata (Nova fome: {new_hunger:.1f}%)", "timestamp": current_time})
+        
+        # === NOVA AÇÃO FÍSICA: EXTRAÇÃO DE SEMENTES ===
+        elif action == "CRAFT_SEED":
+            if survival_brain.inventory_sys.craft_seeds(inv):
+                biology.process_tick(agent, "ACTION") # Trabalhar cansa!
+                events.append({"id": str(uuid.uuid4()), "level": "SUCCESS", "message": f"🌱 {agent_name} cortou 1 Batata e obteve 2 Sementes!", "timestamp": current_time})
+            else:
+                events.append({"id": str(uuid.uuid4()), "level": "WARNING", "message": f"❌ Falha ao extrair sementes: Mochila de sementes cheia ou sem batatas.", "timestamp": current_time})
         
         elif action == "HIRE_BUILDER":
             target_agent = next((a for a in agents if a['id'] == target_id), None)

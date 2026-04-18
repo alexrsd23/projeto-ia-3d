@@ -128,3 +128,16 @@ class InventorySystem:
         is_empty = sum([val for val in loot_inv.values() if val > 0]) == 0
         
         return agent_inv, loot_inv, is_empty, items_transferred
+    
+    def craft_seeds(self, inv_dict):
+        """
+        Converte 1 Batata em 2 Sementes.
+        Retorna True se o craft foi bem-sucedido, False caso contrário.
+        """
+        # Verifica se tem batatas e se tem espaço para pelo menos 1 semente
+        if inv_dict.get('potatoes', 0) >= 1 and inv_dict.get('seeds', 0) < self.MAX_SEEDS:
+            inv_dict['potatoes'] -= 1
+            # Adiciona até 2 sementes, respeitando o limite máximo
+            inv_dict['seeds'] = min(self.MAX_SEEDS, inv_dict.get('seeds', 0) + 2)
+            return True
+        return False
