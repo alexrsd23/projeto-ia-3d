@@ -10,7 +10,7 @@ interface RouteBounds {
 }
 
 interface DashboardProps {
-  onAddEntity: (type: 'house' | 'character' | 'cactus' | 'farmer' | 'woodcutter' | 'builder' | 'tree' | 'stone' | 'fence' | 'log' | 'wolf' | 'damaged_fence' | 'gate', amount?: number) => void;
+  onAddEntity: (type: 'house' | 'character' | 'cactus' | 'farmer' | 'woodcutter' | 'builder' | 'tree' | 'stone' | 'fence' | 'log' | 'wolf' | 'damaged_fence' | 'gate' | 'warehouse' | 'resource_storage' | 'log_cabin', amount?: number) => void;
   isRunning: boolean;
   onToggleSimulation: () => void;
   selectedEntity: Entity | undefined;
@@ -210,6 +210,7 @@ export default function Dashboard({
               <label className="light-label" style={{ margin: 0 }}>Quantidade:</label>
               <input type="number" min="1" max="200" className="light-input" style={{ width: '60px', padding: '4px', margin: 0, textAlign: 'center' }} value={spawnAmount} onChange={(e) => setSpawnAmount(Math.max(1, Number(e.target.value)))} />
             </div>
+
             {/* LÓGICA INTELIGENTE DO BOTÃO BASEADA NO MODO */}
             {currentMode === 'ROUTES' ? (
               <button className="btn-dropdown-item-light" onClick={() => onAddEntity('character', spawnAmount)}>👤⁺ Adicionar Pessoa(s)</button>
@@ -225,7 +226,7 @@ export default function Dashboard({
                 <button className="btn-dropdown-item-light" onClick={() => onAddEntity('stone', spawnAmount)}>🪨⁺ Adicionar Pedra</button>
                 <button className="btn-dropdown-item-light" onClick={() => onAddEntity('log', spawnAmount)}>🪵⁺ Adicionar Tronco</button>
 
-                <div style={{ padding: '8px 16px', fontSize: '11px', fontWeight: 'bold', color: '#94a3b8', textTransform: 'uppercase', background: '#f8fafc' }}>🏗️ Estruturas</div>
+                <div style={{ padding: '8px 16px', fontSize: '11px', fontWeight: 'bold', color: '#94a3b8', textTransform: 'uppercase', background: '#f8fafc' }}>🚪 Cercados</div>
                 <button className="btn-dropdown-item-light" onClick={() => onAddEntity('fence', spawnAmount)}>🧱⁺ Adicionar Cerca</button>
                 <button className="btn-dropdown-item-light" onClick={() => onAddEntity('gate', spawnAmount)}>🚪⁺ Adicionar Portão</button>
               </>
@@ -234,9 +235,13 @@ export default function Dashboard({
             <div style={{ padding: '8px 16px', fontSize: '11px', fontWeight: 'bold', color: '#94a3b8', textTransform: 'uppercase', background: '#f8fafc' }}>⚠️ Outros</div>
             <button className="btn-dropdown-item-light" onClick={() => onAddEntity('house', spawnAmount)}>🏠⁺ Adicionar Casa(s)</button>
             <button className="btn-dropdown-item-light" onClick={() => onAddEntity('cactus', spawnAmount)}>🌵⁺ Adicionar Cacto(s)</button>
-            <button className="btn-dropdown-item-light" style={{ color: '#ef4444' }} onClick={() => onAddEntity('wolf', spawnAmount)}>
-              🐺⁺ Adicionar Lobo
-            </button>
+            <button className="btn-dropdown-item-light" style={{ color: '#ef4444' }} onClick={() => onAddEntity('wolf', spawnAmount)}>🐺⁺ Adicionar Lobo</button>
+
+            {/* Bloco de Infraestruturas Maiores */}
+            <div style={{ padding: '8px 16px', fontSize: '11px', fontWeight: 'bold', color: '#94a3b8', textTransform: 'uppercase', background: '#f8fafc' }}>🏗️ Estruturas</div>
+              <button className="btn-dropdown-item-light" onClick={() => onAddEntity('warehouse')}>🏭⁺ Armazém (Celeiro)</button>
+              <button className="btn-dropdown-item-light" onClick={() => onAddEntity('resource_storage')}>🧱⁺ Depósito de Minérios</button>
+              <button className="btn-dropdown-item-light" onClick={() => onAddEntity('log_cabin')}>🪵⁺ Cabana do Lenhador</button>
           </div>
         </div>
 
@@ -246,17 +251,16 @@ export default function Dashboard({
             <h3 className="panel-title-light">Informação da Entidade</h3>
             {selectedEntity ? (
               (selectedEntity.type === 'farmer' || selectedEntity.type === 'woodcutter' || selectedEntity.type === 'builder') ? (
-                // 1. Agentes Inteligentes (O nosso Super Card)
+                // 1. Agentes Inteligentes
                 <CharacterInfoCard entity={selectedEntity} onSaveIdentity={onSaveIdentity} />
-
               ) : selectedEntity.type === 'wolf' ? (
+                // 2. Predadores
                 <WolfInfoCard entity={selectedEntity} />
-
               ) : (selectedEntity.type === 'fence' || selectedEntity.type === 'gate' || selectedEntity.type === 'damaged_fence') ? (
+                // 3. Estruturas Interativas
                 <FenceInfoCard entity={selectedEntity} />
-
               ) : selectedEntity.type === 'character' ? (
-                // 2. Modo Rotas (Layout Antigo)
+                // 4. Modo Rotas (Layout Antigo)
                 <div style={{ marginTop: '15px' }}>
                   <div style={{ background: '#f8fafc', padding: '10px', borderRadius: '8px', marginBottom: '15px', border: '1px solid #e2e8f0', fontSize: '13px' }}>
                     <span style={{ color: '#3b82f6', fontWeight: 600, fontFamily: 'monospace' }}>ID: {selectedEntity.id.split('-')[0]}</span>
@@ -274,26 +278,36 @@ export default function Dashboard({
                   </button>
                 </div>
               ) : (
-                // 3. NOVO LAYOUT UNIVERSAL (Lobo, Loot, Natureza e Estruturas)
+                // 5. NOVO LAYOUT UNIVERSAL (Loot, Natureza e Arquitetura Maior)
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', marginTop: '15px', padding: '15px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
                   <div style={{ fontSize: '40px' }}>
-                    {selectedEntity.type === 'house' ? '🏠' :
-                      selectedEntity.type === 'cactus' ? '🌵' :
-                        selectedEntity.type === 'tree' ? '🌳' :
-                          selectedEntity.type === 'stone' ? '🪨' :
-                            selectedEntity.type === 'log' ? '🪵' :
-                              selectedEntity.type === 'stump' ? '🪵' :
-                                selectedEntity.type === 'loot' ? '💰' :
-                                  selectedEntity.type === 'wolf' ? '🐺' : '📦'}
+                    {
+                      selectedEntity.type === 'house' ? '🏠' :
+                        selectedEntity.type === 'warehouse' ? '🏭' :
+                          selectedEntity.type === 'resource_storage' ? '🧱' :
+                            selectedEntity.type === 'log_cabin' ? '🪵' :
+                              selectedEntity.type === 'cactus' ? '🌵' :
+                                selectedEntity.type === 'tree' ? '🌳' :
+                                  selectedEntity.type === 'stone' ? '🪨' :
+                                    selectedEntity.type === 'log' ? '🪵' :
+                                      selectedEntity.type === 'stump' ? '🪵' :
+                                        selectedEntity.type === 'loot' ? '💰' : '📦'
+                    }
                   </div>
                   <div style={{ textAlign: 'center' }}>
                     <p style={{ fontWeight: 700, color: '#334155', fontSize: '14px' }}>
-                      {selectedEntity.type === 'loot' ? 'Saco de Espólios' :
-                        selectedEntity.type === 'tree' ? 'Árvore' :
-                          selectedEntity.type === 'stone' ? 'Pedra' :
-                            selectedEntity.type === 'log' ? 'Tronco' :
-                                selectedEntity.type === 'house' ? 'Casa' :
-                                  selectedEntity.type === 'cactus' ? 'Cacto' : 'Objeto Desconhecido'}
+                      {
+                        selectedEntity.type === 'loot' ? 'Saco de Espólios' :
+                          selectedEntity.type === 'tree' ? 'Árvore' :
+                            selectedEntity.type === 'stone' ? 'Pedra' :
+                              selectedEntity.type === 'log' ? 'Tronco' :
+                                selectedEntity.type === 'stump' ? 'Toco de Árvore' :
+                                  selectedEntity.type === 'house' ? 'Casa Simples' :
+                                    selectedEntity.type === 'warehouse' ? 'Armazém Principal' :
+                                      selectedEntity.type === 'resource_storage' ? 'Depósito de Materiais' :
+                                        selectedEntity.type === 'log_cabin' ? 'Cabana do Lenhador' :
+                                          selectedEntity.type === 'cactus' ? 'Cacto' : 'Objeto Desconhecido'
+                      }
                     </p>
                     <p style={{ fontSize: '12px', color: '#94a3b8', fontFamily: 'monospace', marginTop: '4px' }}>
                       ID: {selectedEntity.id.split('-')[0]}

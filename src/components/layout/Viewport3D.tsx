@@ -26,6 +26,9 @@ import Gate from '../3d/environment/Gate';
 import { Html } from '@react-three/drei';
 import PlotVisualizer from '../3d/environment/ground/PlotVisualizer';
 import type { Entity, TileData, PlotData } from '../../types';
+import Warehouse from '../3d/environment/constructions/Warehouse';
+import ResourceStorage from '../3d/environment/constructions/ResourceStorage';
+import LogCabin from '../3d/environment/constructions/LogCabin';
 
 interface RouteBounds {
   xMin: number; xMax: number; zMin: number; zMax: number;
@@ -187,6 +190,15 @@ export default function Viewport3D({
           }
           if (entity.type === 'gate') {
             return <Gate key={entity.id} id={entity.id} position={entity.position} rotation={entity.rotation || 0} isSelected={selectedEntityId === entity.id} onClick={onSelectEntity} onMove={onMoveEntity} onRotate={onRotateEntity} setIsDragging={setIsDragging} allEntities={entities} />;
+          }
+          if (entity.type === 'warehouse') {
+            return <Warehouse key={entity.id} id={entity.id} position={entity.position} isSelected={selectedEntityId === entity.id} onClick={onSelectEntity} onMove={onMoveEntity} setIsDragging={setIsDragging} />;
+          }
+          if (entity.type === 'resource_storage') {
+            return <ResourceStorage key={entity.id} id={entity.id} position={entity.position} isSelected={selectedEntityId === entity.id} onClick={onSelectEntity} onMove={onMoveEntity} setIsDragging={setIsDragging} />;
+          }
+          if (entity.type === 'log_cabin') {
+            return <LogCabin key={entity.id} id={entity.id} position={entity.position} isSelected={selectedEntityId === entity.id} onClick={onSelectEntity} onMove={onMoveEntity} setIsDragging={setIsDragging} />;
           }
           return null;
         })}

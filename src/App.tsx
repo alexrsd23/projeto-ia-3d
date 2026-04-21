@@ -249,6 +249,7 @@ export default function App() {
       while (!validPositionFound && attempts < 50) {
         let rawX, rawZ;
 
+
         // 1. Gera coordenadas baseadas na regra (Área de Teste vs Mapa Inteiro)
         if (isRouteTestingMode && isSentient) {
           rawX = Math.random() * (routeBounds.xMax - routeBounds.xMin) + routeBounds.xMin;
@@ -260,8 +261,17 @@ export default function App() {
         }
 
         // 2. Trava na grade 2x2 para alinhamento perfeito
-        snapX = Math.round(rawX / 2) * 2;
-        snapZ = Math.round(rawZ / 2) * 2;
+        // === CORREÇÃO: Tratamento especial para Edifícios 4x2 ===
+        if (['warehouse', 'resource_storage', 'log_cabin'].includes(type)) {
+          // Edifícios de 4m no eixo X precisam nascer num número ÍMPAR para cobrir 2 blocos perfeitos
+          snapX = Math.round((rawX - 1) / 2) * 2 + 1;
+          // O eixo Z continua com 2m, logo fica em número PAR
+          snapZ = Math.round(rawZ / 2) * 2;
+        } else {
+          // Entidades normais (2x2 ou menores) nascem em números PARES
+          snapX = Math.round(rawX / 2) * 2;
+          snapZ = Math.round(rawZ / 2) * 2;
+        }
 
         // 3. Trava de segurança para não nascer fora dos limites do mapa
         if (isRouteTestingMode && isSentient) {
@@ -293,7 +303,7 @@ export default function App() {
 
       // O verdadeiro chão do mundo está na cota -0.5!
       // A base da natureza, muros e animais quadrúpedes precisa ser "plantada" nessa cota.
-      if (['cactus', 'tree', 'stump', 'stone', 'fence', 'gate', 'damaged_fence', 'wolf'].includes(type)) {
+      if (['cactus', 'tree', 'stump', 'stone', 'fence', 'gate', 'damaged_fence', 'wolf', 'warehouse', 'resource_storage', 'log_cabin'].includes(type)) {
         positionY = -0.5;
       }
 

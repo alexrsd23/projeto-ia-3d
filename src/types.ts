@@ -1,6 +1,8 @@
 export interface Entity {
   id: string;
-  type: 'house' | 'character' | 'cactus' | 'farmer' | 'woodcutter' | 'builder' | 'tree' | 'stump' | 'log' | 'stone' | 'fence' | 'loot' | 'wolf' | 'damaged_fence' | 'gate';
+  type: 'house' | 'character' | 'cactus' | 'farmer' | 'woodcutter' | 'builder' | 
+  'tree' | 'stump' | 'log' | 'stone' | 'fence' | 'loot' | 'wolf' | 'damaged_fence' | 
+  'gate' | 'warehouse' | 'resource_storage' | 'log_cabin';
   position: [number, number, number];
   rotation?: number;
   name?: string;
