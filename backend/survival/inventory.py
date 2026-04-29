@@ -5,10 +5,12 @@ class InventorySystem:
         # Limites de Estoque
         self.MAX_POTATOES = 16
         self.MAX_SEEDS = 16
-        self.MAX_LOGS = 40     # Limite do Lenhador expandido para suprir a demanda
-        self.MAX_STONES = 16   # Pedras suficientes para 4 portões
-        self.MAX_FENCES = 20   # Cercas suficientes para cercar a fazenda inteira de uma vez
-        self.MAX_GATES = 5     # Novo Limite para Portões
+        self.MAX_LOGS = 40
+        self.MAX_STONES = 16
+        self.MAX_FENCES = 20
+        self.MAX_GATES = 5
+        self.MAX_METAL_PARTS = 10
+        self.MAX_TREE_SEEDS = 20
 
     def parse(self, inventory_json):
         """Converte JSON para dicionário garantindo que todas as chaves existam."""
@@ -18,7 +20,9 @@ class InventorySystem:
             "logs": 0, 
             "stones": 0, 
             "fences": 0, 
-            "gates": 0,        # <--- NOVO: Chave para os Portões
+            "gates": 0,     
+            "metal_parts": 0,
+            "tree_seed": 0,
             "plobs": 500.0
         }
         
@@ -36,7 +40,8 @@ class InventorySystem:
             return default_inv
 
     def to_string(self, inv_dict):
-        return json.dumps(inv_dict)
+        import json
+        return json.dumps({k: v for k, v in inv_dict.items() if v > 0 or k == 'plobs'})
 
     def add_harvest(self, inv_dict):
         """O rendimento de um bloco maduro: 1 Batata e 2 Sementes."""
@@ -94,6 +99,8 @@ class InventorySystem:
             "stones": self.MAX_STONES,
             "fences": self.MAX_FENCES,
             "gates": self.MAX_GATES,
+            "metal_parts": self.MAX_METAL_PARTS,
+            "tree_seed": self.MAX_TREE_SEEDS, # <--- CORREÇÃO: Adicionado para permitir o saque!
             "plobs": float('inf') # Dinheiro não tem limite de peso
         }
         

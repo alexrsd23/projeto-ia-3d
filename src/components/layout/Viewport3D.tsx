@@ -29,6 +29,7 @@ import type { Entity, TileData, PlotData } from '../../types';
 import Warehouse from '../3d/environment/constructions/Warehouse';
 import ResourceStorage from '../3d/environment/constructions/ResourceStorage';
 import LogCabin from '../3d/environment/constructions/LogCabin';
+import Blacksmith from '../3d/Blacksmith';
 
 interface RouteBounds {
   xMin: number; xMax: number; zMin: number; zMax: number;
@@ -82,10 +83,10 @@ export default function Viewport3D({
           <Moon position={moonPos} isSelected={selectedEntityId === 'moon'} onClick={() => onSelectEntity('moon')} onMove={onMoveMoon} setIsDragging={setIsDragging} />
         )}
 
-        <Ground 
-          tiles={tiles} 
-          selectedTileId={selectedTileId} 
-          onSelectTile={isTerrainEditingMode ? onSelectTile : () => {}} 
+        <Ground
+          tiles={tiles}
+          selectedTileId={selectedTileId}
+          onSelectTile={isTerrainEditingMode ? onSelectTile : () => { }}
         />
 
         {/* === NOVO: O VISUALIZADOR DE TERRENOS RESERVADOS === */}
@@ -199,6 +200,9 @@ export default function Viewport3D({
           }
           if (entity.type === 'log_cabin') {
             return <LogCabin key={entity.id} id={entity.id} position={entity.position} isSelected={selectedEntityId === entity.id} onClick={onSelectEntity} onMove={onMoveEntity} setIsDragging={setIsDragging} />;
+          }
+          if (entity.type === 'blacksmith') {
+            return <Blacksmith key={entity.id} id={entity.id} position={entity.position} name={entity.name} hunger={entity.hunger} health={entity.health} color={entity.color} sex={entity.sex as 'M' | 'F'} trustLevel={entity.trustLevel} lieLevel={entity.lieLevel} isSelected={selectedEntityId === entity.id} onClick={onSelectEntity} onMove={onMoveEntity} setIsDragging={setIsDragging} showNames={showNames} />;
           }
           return null;
         })}

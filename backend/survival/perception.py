@@ -48,6 +48,8 @@ class PerceptionSystem:
                     seen_data.setdefault("loots", []).append(item)
                 elif entity['type'] == 'tree':
                     seen_data.setdefault("trees", []).append(item)
+                elif entity['type'] == 'stump':
+                    seen_data.setdefault("stumps", []).append(item)
                 elif entity['type'] == 'damaged_fence':
                     seen_data.setdefault("broken_fences", []).append(item)
                 elif entity['type'] == 'log':

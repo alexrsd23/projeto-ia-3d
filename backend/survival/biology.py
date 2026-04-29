@@ -7,17 +7,23 @@ class BiologySystem:
         self.MAX_HUNGER = 100.0
         self.MAX_HEALTH = 100.0
         
-        # === NOVO BALANÇO METABÓLICO (Fome 10x mais lenta) ===
-        self.BASE_METABOLISM = 0.02   # Quase não gasta se estiver parado
-        self.MOVE_COST = 0.08         # Total de 0.1 por tick a andar (Sobrevive 1000 ticks / ~4 minutos)
-        self.ACTION_COST = 0.50       # Trabalho pesado (arar/plantar) cansa 5x mais rápido
+        self.BASE_METABOLISM = 0.02   
+        self.MOVE_COST = 0.08         
+        
+        # === CORREÇÃO METABÓLICA: REDUÇÃO DE FADIGA ===
+        # Reduzido de 0.50 para 0.20. Permite ao agente trabalhar 
+        # sem entrar em colapso antes da colheita.
+        self.ACTION_COST = 0.20       
         
         self.STARVATION_DAMAGE = 3.0  
-        self.POTATO_NUTRITION = 35.0  # Nutrição ajustada para exigir múltiplas refeições
         
-        # === NOVOS PARÂMETROS DE VELHICE ===
-        self.SENESCENCE_AGE = 1500  # Começa a ficar frágil (Equivalente a ~60 anos)
-        self.MAX_AGE = 2500         # O limite biológico máximo (Equivalente a ~100 anos)
+        # === CORREÇÃO NUTRICIONAL: SUPERÁVIT AGRÍCOLA ===
+        # Elevado de 35.0 para 55.0. Cada batata agora sustenta
+        # o agricultor tempo suficiente para ele exportar a segunda batata.
+        self.POTATO_NUTRITION = 55.0  
+        
+        self.SENESCENCE_AGE = 1500  
+        self.MAX_AGE = 2500
 
     def process_tick(self, agent_data, last_action_type="IDLE"):
         import random
@@ -92,15 +98,13 @@ class BiologySystem:
         import random
         
         # 1. Genética Biológica (Sexo e Profissão)
-        # O sexo é 50/50 puro.
         child_sex = random.choice(['M', 'F'])
-        # A profissão é herdada por tradição (como eles têm de ter a mesma para casar, a criança herda)
         child_profession = parent_a.get('profession', 'Explorador')
         
         # 2. Mistura de Cores (Aquarela Genética)
         def hex_to_rgb(hex_color):
             hex_color = hex_color.lstrip('#')
-            if len(hex_color) != 6: return (128, 128, 128) # Gray default
+            if len(hex_color) != 6: return (128, 128, 128)
             return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
             
         def rgb_to_hex(rgb):
@@ -109,7 +113,6 @@ class BiologySystem:
         color_a = hex_to_rgb(parent_a.get('color', '#808080'))
         color_b = hex_to_rgb(parent_b.get('color', '#808080'))
         
-        # O filho é a média das cores dos pais + uma ligeira mutação (-15 a +15 em cada canal de cor)
         child_rgb = [
             (color_a[i] + color_b[i]) / 2 + random.randint(-15, 15) 
             for i in range(3)
@@ -117,18 +120,12 @@ class BiologySystem:
         child_color = rgb_to_hex(child_rgb)
         
         # 3. Herança Comportamental (Natureza + Mutação/Nurture)
-        # === CORREÇÃO: Genética Dominante (Mendel) ===
-        # A criança herda 100% do gene de um dos pais aleatoriamente, e sofre uma mutação.
         def mix_trait(trait_name):
             val_a = float(parent_a.get(trait_name, 50.0))
             val_b = float(parent_b.get(trait_name, 50.0))
-            
-            # Sorteia qual genitor passará o gene dominante
             base_gene = random.choice([val_a, val_b])
-            
-            # Aplica a mutação (livre arbítrio / fatores externos)
             mutation = random.uniform(-15.0, 15.0)
-            return max(0.0, min(100.0, base_gene + mutation)) # Garante que fica entre 0 e 100
+            return max(0.0, min(100.0, base_gene + mutation))
 
         child_trust = mix_trait('trustLevel')
         child_lie = mix_trait('lieLevel')
@@ -139,5 +136,8 @@ class BiologySystem:
             "color": child_color,
             "trustLevel": round(child_trust, 1),
             "lieLevel": round(child_lie, 1),
-            "married": False # Nasce solteiro, claro!
+            "married": False,
+            # === CORREÇÃO: O DNA AGORA INCLUI A MATRIZ DE FILIAÇÃO ===
+            "parent_a_id": parent_a['id'],
+            "parent_b_id": parent_b['id']
         }

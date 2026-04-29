@@ -42,6 +42,21 @@ class MarketIntelligence:
                 return False
                 
             return expected_profit > (monetary_cost_of_working * 1.2)
+        
+        elif profession == "Ferreiro":
+            # Calcula a margem de forjar Metal
+            inflated_part_price = self.economy.BASE_PRICES["metal_parts"] * self.economy.GLOBAL_SCARCITY.get("metal_parts", 1.0)
+            inflated_stone_cost = self.economy.BASE_PRICES["stones"] * self.economy.GLOBAL_SCARCITY.get("stones", 1.0)
+            profit_metal = inflated_part_price - (inflated_stone_cost * 2)
+            
+            # Calcula a margem de forjar Kits de Reflorestamento (Lembrete: 1 pedra = 2 sementes)
+            inflated_seed_price = self.economy.BASE_PRICES["tree_seed"] * self.economy.GLOBAL_SCARCITY.get("tree_seed", 1.0)
+            profit_seed = (inflated_seed_price * 2) - inflated_stone_cost
+            
+            # Se a melhor das duas opções for rentável, ele trabalha!
+            best_profit = max(profit_metal, profit_seed)
+            if best_profit <= 0: return False
+            return best_profit > (monetary_cost_of_working * 1.2)
             
         elif profession == "Fazendeiro":
             # O Fazendeiro produz do zero, mas gera 2 batatas por bloco plantado

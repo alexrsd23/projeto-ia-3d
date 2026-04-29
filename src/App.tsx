@@ -219,7 +219,7 @@ export default function App() {
       let attempts = 0;
 
       // === SISTEMA DE BIOLOGIA E GENÉTICA (GERAÇÃO 0) ===
-      const isSentient = ['character', 'farmer', 'woodcutter', 'builder', 'wolf'].includes(type);
+      const isSentient = ['character', 'farmer', 'woodcutter', 'builder', 'wolf', 'blacksmith'].includes(type);
       let agentSex = 'M';
       let agentColor = '#ffffff';
       let agentProfession = 'Desempregado';
@@ -240,6 +240,7 @@ export default function App() {
           case 'farmer': agentProfession = 'Fazendeiro'; break;
           case 'woodcutter': agentProfession = 'Lenhador'; break;
           case 'builder': agentProfession = 'Construtor'; break;
+          case 'blacksmith': agentProfession = 'Ferreiro'; break;
           case 'character': agentProfession = 'Explorador'; break;
           case 'wolf': agentProfession = 'Lobo Selvagem'; break;
         }
@@ -341,7 +342,7 @@ export default function App() {
 
       // Desvia o endpoint baseado na profissão para gravar as sub-tabelas corretas no Neo4j
       let endpoint = 'http://127.0.0.1:8000/api/entities';
-      if (['farmer', 'woodcutter', 'builder', 'wolf'].includes(type)) {
+      if (['farmer', 'woodcutter', 'builder', 'wolf', 'blacksmith'].includes(type)) {
         endpoint = `http://127.0.0.1:8000/api/entities/${type}`;
       }
 
@@ -415,10 +416,10 @@ export default function App() {
   // ========================================================
   const handleKillAllAgents = async () => {
     // 1. Limpa os agentes E animais da tela instantaneamente
-    setEntities(prev => prev.filter(e => !['character', 'farmer', 'woodcutter', 'builder', 'wolf'].includes(e.type)));
+    setEntities(prev => prev.filter(e => !['character', 'farmer', 'woodcutter', 'builder', 'wolf', 'blacksmith'].includes(e.type)));
 
     // 2. Se o utilizador estava com um agente selecionado, desmarca-o
-    if (['character', 'farmer', 'woodcutter', 'builder', 'wolf'].includes(selectedEntity?.type || '')) {
+    if (['character', 'farmer', 'woodcutter', 'builder', 'wolf', 'blacksmith'].includes(selectedEntity?.type || '')) {
       setSelectedEntityId(null);
     }
 

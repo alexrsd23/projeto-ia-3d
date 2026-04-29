@@ -41,15 +41,20 @@ export default function CharacterInfoCard({ entity, onSaveIdentity }: CharacterI
   const hungerLevel = entity.hunger ?? 100;
 
   // Adapta o texto baseando-se na profissão
-  if (currentState === "FARMER") {
+  if (currentState === "FARMER" || currentState === "CRAFTING" || currentState === "CHOPPING" || currentState === "BUILDING") {
     if (entity.type === 'woodcutter') { moodIcon = "🪓"; moodText = "Cortando madeira"; moodColor = "#8b5a2b"; }
-    else if (entity.type === 'builder') { moodIcon = "🧱"; moodText = "Construindo defesas"; moodColor = "#64748b"; }
+    else if (entity.type === 'builder') { moodIcon = "🧱"; moodText = "Construindo estruturas"; moodColor = "#64748b"; }
+    else if (entity.type === 'blacksmith') { moodIcon = "⚒️"; moodText = "Forjando no calor da bigorna"; moodColor = "#334155"; } // <--- HUMOR DO FERREIRO
     else { moodIcon = "👨‍🌾"; moodText = "Trabalhando na agricultura"; moodColor = "#10b981"; }
   } else if (currentState === "SEEK_FOOD" || (hungerLevel < 70 && hungerLevel >= 30)) {
     moodIcon = "🔍"; moodText = "Procurando comida"; moodColor = "#d97706";
+  } else if (currentState === "BROKEN_TOOL") {
+    moodIcon = "🔧"; moodText = "Ferramenta quebrada! Buscando reparo"; moodColor = "#64748b";
   } else if (currentState === "EMERGENCY_EAT" || hungerLevel < 30) {
     moodIcon = "🚨"; moodText = "Desesperado por sobrevivência"; moodColor = "#ef4444";
   }
+
+  const toolHp = (entity as any).toolHp ?? 100;
 
   return (
     <div style={{ marginTop: '15px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -75,10 +80,12 @@ export default function CharacterInfoCard({ entity, onSaveIdentity }: CharacterI
         </div>
       </div>
 
-      {/* SINAIS VITAIS */}
-      <div style={{ display: 'flex', gap: '10px' }}>
-        <div style={{ flex: 1, background: '#fff5f5', padding: '10px', borderRadius: '8px', border: '1px solid #fecaca' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#b91c1c', fontWeight: 700, marginBottom: '4px' }}>
+      {/* SINAIS VITAIS & FERRAMENTAS */}
+      <div style={{ display: 'flex', gap: '8px' }}>
+        
+        {/* VIDA */}
+        <div style={{ flex: 1, background: '#fff5f5', padding: '8px', borderRadius: '8px', border: '1px solid #fecaca' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#b91c1c', fontWeight: 700, marginBottom: '4px' }}>
             <span>❤️ Vida</span><span>{Math.round(entity.health ?? 0)}%</span>
           </div>
           <div style={{ width: '100%', height: '6px', background: '#f87171', borderRadius: '3px', overflow: 'hidden' }}>
@@ -86,14 +93,27 @@ export default function CharacterInfoCard({ entity, onSaveIdentity }: CharacterI
           </div>
         </div>
 
-        <div style={{ flex: 1, background: '#f0fdf4', padding: '10px', borderRadius: '8px', border: '1px solid #bbf7d0' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#15803d', fontWeight: 700, marginBottom: '4px' }}>
+        {/* FOME */}
+        <div style={{ flex: 1, background: '#f0fdf4', padding: '8px', borderRadius: '8px', border: '1px solid #bbf7d0' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#15803d', fontWeight: 700, marginBottom: '4px' }}>
             <span>🍗 Fome</span><span>{Math.round(entity.hunger ?? 0)}%</span>
           </div>
           <div style={{ width: '100%', height: '6px', background: '#86efac', borderRadius: '3px', overflow: 'hidden' }}>
             <div style={{ width: `${entity.hunger ?? 0}%`, height: '100%', background: '#16a34a', transition: 'width 0.3s' }} />
           </div>
         </div>
+
+        {/* NOVO: DURABILIDADE DA FERRAMENTA (Apenas para Trabalhadores) */}
+        {['farmer', 'woodcutter', 'builder', 'blacksmith'].includes(entity.type) && (
+          <div style={{ flex: 1, background: '#f1f5f9', padding: '8px', borderRadius: '8px', border: '1px solid #cbd5e1' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#475569', fontWeight: 700, marginBottom: '4px' }}>
+              <span>⚒️ Item</span><span>{Math.round(toolHp)}%</span>
+            </div>
+            <div style={{ width: '100%', height: '6px', background: '#cbd5e1', borderRadius: '3px', overflow: 'hidden' }}>
+              <div style={{ width: `${toolHp}%`, height: '100%', background: '#475569', transition: 'width 0.3s' }} />
+            </div>
+          </div>
+        )}
       </div>
 
       {/* === INVENTÁRIO DINÂMICO === */}

@@ -17,19 +17,90 @@ class SurvivalController:
         self.memory_sys = SpatialMemory()
         self.agent_states = {} 
         self.farm_planner = FarmPlanner()
+        
+    def _find_service_provider(self, agent_pos, agent_id, required_type, radar_data, all_agents, active_boycotts):
+        """
+        Sinal Público Integrado com Filtro de Viabilidade Econômica.
+        Retorna (target_dict, is_local_bool).
+        """
+        valid_global_providers = []
+        for a in all_agents:
+            if a.get('type') == required_type and a.get('id') not in active_boycotts and a.get('id') != agent_id:
+                
+                # === CORREÇÃO: O Pulo do Gato (Verificação de Liquidez) ===
+                inv = self.inventory_sys.parse(a.get('inventoryJSON', "{}"))
+                
+                # Se for fazendeiro, EXIGE que possua excedente seguro (mais de 3 batatas) antes de se anunciar
+                if required_type == 'farmer' and inv.get('potatoes', 0) <= 3:
+                    continue
+                # Se for lenhador, exige ter estoque de madeira
+                if required_type == 'woodcutter' and inv.get('logs', 0) < 1:
+                    continue
+                
+                valid_global_providers.append(a)
+
+        if not valid_global_providers:
+            return None, False
+
+        # 1. Busca Local Otimizada
+        valid_ids = {a['id'] for a in valid_global_providers}
+        local_providers = [p for p in radar_data.get('other_agents', []) if p['id'] in valid_ids]
+        if local_providers:
+            return local_providers[0], True
+            
+        # 2. Ping Global (Telecomunicação/Desespero)
+        valid_global_providers.sort(key=lambda v: math.hypot(v.get('x', 0) - agent_pos[0], v.get('z', 0) - agent_pos[1]))
+        best = valid_global_providers[0]
+        dist = math.hypot(best.get('x', 0) - agent_pos[0], best.get('z', 0) - agent_pos[1])
+        
+        simulated_radar_node = {
+            "id": best['id'], "type": best['type'], 
+            "name": best.get('name', 'Agente'), 
+            "x": best.get('x', 0), "z": best.get('z', 0), 
+            "dist": dist
+        }
+        return simulated_radar_node, False
+            
+        return None, False
 
     def decide_next_move(self, agent, world_entities, world_tiles, world_plots, current_tick, all_agents):
         agent_id = agent['id']
         agent_type = agent.get('type', 'farmer') 
+        agent_name = agent.get('name')
+        if not agent_name or agent_name == "None":
+            agent_name = f"Lobo {agent_id[:4]}" if agent_type == 'wolf' else f"Agente {agent_id[:4]}"
         agent_pos = (agent['x'], agent['z'], agent_id) 
         raw_hunger = agent.get('hunger')
         hunger = float(raw_hunger) if raw_hunger is not None else 100.0
+        tool_hp = float(agent.get('toolHp', 100.0))
         
         inv = self.inventory_sys.parse(agent.get('inventoryJSON', "{}"))
         
         radar_data = self.perception_sys.scan_environment(agent_pos, world_entities, world_tiles, all_agents)
         self.memory_sys.update_from_perception(agent_id, radar_data, current_tick)
         
+        # ==============================================================================
+        # === CORREÇÃO CRÍTICA: FILTRO DE DIREITOS DE PROPRIEDADE (ANTI-ROUBO) ===
+        # ==============================================================================
+        # O radar é puramente óptico. O córtex precisa processar o que é legalmente acessível.
+        # Remove do radar qualquer recurso agrícola que esteja num terreno de terceiros.
+        def is_coord_mine_or_wild(cx, cz):
+            for p in world_plots:
+                px_min, pz_min = p['startX'], p['startZ']
+                px_max = px_min + (p['width'] - 1) * 2
+                pz_max = pz_min + (p['height'] - 1) * 2
+                
+                if px_min <= cx <= px_max and pz_min <= cz <= pz_max:
+                    # Se está dentro de um terreno, só é válido se o terreno for do agente atual
+                    return p.get('ownerId') == agent_id
+            return True # Está fora de qualquer terreno (Terra Devoluta/Selvagem)
+
+        # Aplica a triagem legal sobre as intenções de colheita e plantio
+        for key in ['food_ready', 'food_growing', 'empty_farms', 'arable_land']:
+            if key in radar_data:
+                radar_data[key] = [item for item in radar_data[key] if is_coord_mine_or_wild(item['x'], item['z'])]
+        # ==============================================================================
+
         # === MAPEAMENTO DE COLISÕES REFINADO (ALTA PERFORMANCE) ===
         blocked_coords = set()
         solid_types = {'fence', 'gate', 'tree', 'stump', 'cactus', 'wall'}
@@ -38,10 +109,17 @@ class SurvivalController:
         connectable_types = {'fence', 'gate', 'damaged_fence'}
         connectable_coords = set()
         
-        # === NOVO: BLOQUEIA ÁREAS RESERVADAS NO BANCO (EXCETO PARA O DONO) ===
+        # === NOVO: VISTO DE TRABALHO (WORK VISA) ===
+        # Identifica se o agente possui um contrato ativo para liberar o acesso ao terreno do cliente
+        my_contract_plot_id = None
+        active_contract = self.memory_sys.agent_memories.get(agent_id, {}).get('active_contract')
+        if active_contract:
+            my_contract_plot_id = active_contract.get('plot_id')
+
+        # === ZONAS DE EXCLUSÃO ESPACIAL (PROPRIEDADES) ===
         for plot in world_plots:
-            # Se o agente atual é o dono deste terreno, NÃO o adiciona aos obstáculos!
-            if plot.get('ownerId') == agent_id:
+            # 1. Donos e Contratados têm passe livre imediato
+            if plot.get('ownerId') == agent_id or plot.get('id') == my_contract_plot_id:
                 continue 
                 
             p_start_x = plot['startX']
@@ -49,10 +127,26 @@ class SurvivalController:
             p_width = plot['width']
             p_height = plot['height']
             
-            # Calcula a área inteira da fazenda reservada e marca como "Proibida"
             p_max_x = p_start_x + (p_width - 1) * 2
             p_max_z = p_start_z + (p_height - 1) * 2
             
+            # === NOVA LEI DE ZONEAMENTO: PROTOCOLO CATRACA E REPAROS ===
+            # Se o agente já está fisicamente DENTRO do terreno, concedemos amnistia de locomoção.
+            # Ele poderá andar lá dentro, mas as cercas físicas ainda o obrigarão a usar o portão para sair.
+            is_trapped = (p_start_x <= agent_pos[0] <= p_max_x) and (p_start_z <= agent_pos[1] <= p_max_z)
+            
+            # Concede passe livre ao Construtor caso ele esteja no perímetro indo realizar um reparo ativo
+            is_repairing = False
+            if agent_type == 'builder' and radar_data.get('broken_fences'):
+                for bf in radar_data['broken_fences']:
+                    if p_start_x <= bf['x'] <= p_max_x and p_start_z <= bf['z'] <= p_max_z:
+                        is_repairing = True
+                        break
+                        
+            if is_trapped or is_repairing:
+                continue
+                
+            # Bloqueia o acesso a quem está do lado de fora!
             for x in range(p_start_x, p_max_x + 1, 2):
                 for z in range(p_start_z, p_max_z + 1, 2):
                     blocked_coords.add((x, z))
@@ -174,11 +268,19 @@ class SurvivalController:
                         return self._move_towards(agent_pos, (partner['x'], partner['z']), blocked_coords, f"Indo conhecer {partner['name']}.")
             else:
                 can_afford_child = False
-                if agent_type == 'farmer' and inv.get('potatoes', 0) >= 2:
+                
+                # === NOVO: CONTROLE POPULACIONAL EXPONENCIAL ===
+                # O custo multiplica-se por 2 a cada filho que ESTE agente possui.
+                my_kids = self.memory_sys.agent_memories.get(agent_id, {}).get('children_count', 0)
+                cost_multiplier = 2 ** my_kids
+                
+                if agent_type == 'farmer' and inv.get('potatoes', 0) >= (2 * cost_multiplier):
                     can_afford_child = True
-                elif agent_type == 'woodcutter' and inv.get('logs', 0) >= 5:
+                elif agent_type == 'woodcutter' and inv.get('logs', 0) >= (5 * cost_multiplier):
                     can_afford_child = True
-                elif agent_type == 'builder' and inv.get('stones', 0) >= 5:
+                elif agent_type == 'builder' and inv.get('stones', 0) >= (4 * cost_multiplier): # Base reduzida para 4 para alinhar ao limite de 16 pedras
+                    can_afford_child = True
+                elif agent_type == 'blacksmith' and inv.get('metal_parts', 0) >= (2 * cost_multiplier): # Correção: Inclusão do Ferreiro
                     can_afford_child = True
 
                 if hunger >= 70.0 and can_afford_child:
@@ -223,6 +325,30 @@ class SurvivalController:
                     self.agent_states[agent_id] = "SEEK_LOOT"
                     return self._move_towards(agent_pos, (target_loot['x'], target_loot['z']), blocked_coords, "Viu pertences no chão! Indo investigar.")
         
+        # ==============================================================================
+        # === PRIORIDADE 1.2: A CORRIDA DO OURO IMOBILIÁRIA (USUCAPIÃO) ===
+        # ==============================================================================
+        # O comportamento SÓ PROCESSA DADOS se existirem terrenos na lista 'abandoned'.
+        # Caso contrário, ignora a etapa e não consome CPU.
+        abandoned_plots = [p for p in world_plots if p.get('status') == 'abandoned']
+        
+        # CORREÇÃO: Apenas Fazendeiros (agentes com a mecânica agrícola) têm competência legal e técnica para usucapir.
+        if abandoned_plots and agent_type == 'farmer':
+            # Encontra as terras livres mais próximas
+            abandoned_plots.sort(key=lambda p: math.hypot(p['startX'] - agent_pos[0], p['startZ'] - agent_pos[1]))
+            target_plot = abandoned_plots[0]
+            
+            # O alvo é a esquina do terreno
+            dist_to_plot = math.hypot(target_plot['startX'] - agent_pos[0], target_plot['startZ'] - agent_pos[1])
+            
+            if dist_to_plot <= 4.0:
+                self.agent_states[agent_id] = "CLAIMING_LAND"
+                return ("CLAIM_PLOT", agent_pos[0], agent_pos[1], target_plot['id'], "Cravando a bandeira! Assumindo posse legal das terras por Usucapião.")
+            else:
+                self.agent_states[agent_id] = "LAND_RUSH"
+                return self._move_towards(agent_pos, (target_plot['startX'], target_plot['startZ']), blocked_coords, "Corrida do Ouro! Indo reivindicar terras abandonadas no mapa.")
+        # ==============================================================================
+        
         # === PRIORIDADE 0: AUTO-REGULAÇÃO (Comer) ===
         if hunger < 60.0 and self.inventory_sys.has_food(inv):
             return ("EAT_INVENTORY", agent_pos[0], agent_pos[1], None, "Saciando a fome com as provisões da mochila.")
@@ -240,22 +366,22 @@ class SurvivalController:
                     return self._move_towards(agent_pos, (target['x'], target['z']), blocked_coords, "Correndo para colher comida (Radar).")
                 
                 # B) A BÚSSOLA DO ESTÔMAGO: Volta para casa para procurar/esperar comida
-                my_plot = next((p for p in world_plots if p.get('ownerId') == agent_id), None)
-                if my_plot:
+                my_plots = [p for p in world_plots if p.get('ownerId') == agent_id]
+                if my_plots:
+                    # Identifica a propriedade mais próxima para economizar calorias na viagem
+                    my_plot = min(my_plots, key=lambda p: math.hypot(p['startX'] - agent_pos[0], p['startZ'] - agent_pos[1]))
+                    
                     # CORREÇÃO GEOMÉTRICA: Força o Snap to Grid (// 2 * 2) para aterrar num bloco par exato!
                     center_x = (my_plot['startX'] + my_plot['width'] - 1) // 2 * 2
                     center_z = (my_plot['startZ'] + my_plot['height'] - 1) // 2 * 2
                     dist_to_plot = math.hypot(center_x - agent_pos[0], center_z - agent_pos[1])
                     
                     if dist_to_plot > 4.0:
-                        return self._move_towards(agent_pos, (center_x, center_z), blocked_coords, "Faminto! Retornando à minha fazenda em busca de comida.")
+                        return self._move_towards(agent_pos, (center_x, center_z), blocked_coords, "Faminto! Retornando a uma das minhas propriedades em busca de comida.")
                     else:
-                        # === CORREÇÃO DE ESTADO CRÍTICO (ANTI-INANIÇÃO) ===
-                        # Se a fome ainda é apenas moderada (>= 25), ele senta e espera a colheita.
-                        # Se for crítica (< 25), ele quebra o acampamento e avança para o Mercado/Hipocampo!
                         if not is_critical:
                             self.agent_states[agent_id] = "WAITING_CROP"
-                            return ("MOVE", agent_pos[0], agent_pos[1], None, "Fome moderada. Esperando a colheita crescer na minha fazenda...")
+                            return ("MOVE", agent_pos[0], agent_pos[1], None, "Fome moderada. Esperando a colheita crescer no meu latifúndio...")
 
                 # C) O Hipocampo: Tenta lembrar de batatas selvagens
                 best_mem = self.memory_sys.get_best_food_source(agent_id, agent_pos)
@@ -271,17 +397,17 @@ class SurvivalController:
                 my_boycotts = self.memory_sys.agent_memories.get(agent_id, {}).get('boycotts', {})
                 active_boycotts = [f_id for f_id, tick_banned in my_boycotts.items() if current_tick - tick_banned < 50]
                 
-                peer_farmers = [p for p in radar_data.get('other_agents', []) if p['type'] == 'farmer' and p['id'] not in active_boycotts]
+                # CORREÇÃO: Utiliza o filtro global de viabilidade (agora não interroga quem não tem batatas)
+                target_farmer, is_local = self._find_service_provider(agent_pos, agent_id, 'farmer', radar_data, all_agents, active_boycotts)
                 
-                if peer_farmers and inv.get('plobs', 0.0) > 0.0:
+                if target_farmer and inv.get('plobs', 0.0) > 0.0:
                     self.agent_states[agent_id] = "SEEK_TRADE"
-                    target_farmer = peer_farmers[0]
                     if target_farmer['dist'] <= 3.0:
                         return ("TRADE", agent_pos[0], agent_pos[1], target_farmer['id'], f"Desesperado! Negociando comida com o colega {target_farmer['name']}.")
                     return self._move_towards(agent_pos, (target_farmer['x'], target_farmer['z']), blocked_coords, f"Perseguindo {target_farmer['name']} para comprar batatas do estoque dele.")
 
                 # E) Sobrevivência Bruta: Vaga pelo mapa rezando para achar algo
-                return self._wander(agent_pos, blocked_coords, "Faminto e perdido! Vagueando em busca de recursos ou vendedores.")
+                return self._wander(agent_pos, blocked_coords, "Faminto e perdido! Vagueando em busca de recursos selvagens ou vendedores válidos.")
             
             else:
                 # (Mantenha o código do SEEK_TRADE do Lenhador/Construtor exatamente como estava aqui...)
@@ -290,15 +416,37 @@ class SurvivalController:
                 my_boycotts = self.memory_sys.agent_memories.get(agent_id, {}).get('boycotts', {})
                 active_boycotts = [f_id for f_id, tick_banned in my_boycotts.items() if current_tick - tick_banned < 50]
                 
-                farmers = [p for p in radar_data.get('other_agents', []) if p['type'] == 'farmer' and p['id'] not in active_boycotts]
+                # Invoca o protocolo de Mercado Global
+                target_farmer, is_local = self._find_service_provider(agent_pos, agent_id, 'farmer', radar_data, all_agents, active_boycotts)
                 
-                if farmers:
-                    target_farmer = farmers[0]
-                    if target_farmer['dist'] <= 3:
-                        return ("TRADE", agent_pos[0], agent_pos[1], target_farmer['id'], f"Iniciando negociação de comida com {target_farmer['name']}.")
-                    return self._move_towards(agent_pos, (target_farmer['x'], target_farmer['z']), blocked_coords, f"Perseguindo o fazendeiro {target_farmer['name']} para comprar comida.")
+                if target_farmer and inv.get('plobs', 0.0) > 0.0:
+                    if target_farmer['dist'] <= 3.0:
+                        return ("TRADE", agent_pos[0], agent_pos[1], target_farmer['id'], f"Desesperado! Iniciando leilão bilateral por comida com {target_farmer['name']}.")
+                    
+                    msg_log = f"Aproximando-se de {target_farmer['name']} para comprar comida." if is_local else f"📡 RÁDIO GLOBAL | {agent_name}: 'Ameaça de inanição! Compro batatas a qualquer preço!' | 📻 {target_farmer['name']} (X:{target_farmer['x']}, Z:{target_farmer['z']}): 'Venha ao meu terreno negociar!'"
+                    return self._move_towards(agent_pos, (target_farmer['x'], target_farmer['z']), blocked_coords, msg_log)
                 else:
-                    return self._wander(agent_pos, blocked_coords, "Comida está muito cara ou não há fazendeiros justos por perto. Explorando alternativas.")
+                    return self._wander(agent_pos, blocked_coords, "Inflação severa ou ausência total de fornecedores ativos. Risco de inanição.")
+                
+        # === PRIORIDADE 1.5: MANUTENÇÃO DE FERRAMENTAS ===
+        if agent_type in ['farmer', 'woodcutter', 'builder'] and tool_hp <= 0.0:
+            self.agent_states[agent_id] = "BROKEN_TOOL"
+            
+            my_boycotts = self.memory_sys.agent_memories.get(agent_id, {}).get('boycotts', {})
+            active_boycotts = [b for b, tick in my_boycotts.items() if current_tick - tick < 50]
+            
+            # Invoca o protocolo de Sinal Global para Manutenção
+            target_smith, is_local = self._find_service_provider(agent_pos, agent_id, 'blacksmith', radar_data, all_agents, active_boycotts)
+            
+            if target_smith:
+                if target_smith['dist'] <= 3.0:
+                    tool_n = "Enxada" if agent_type == 'farmer' else ("Machado" if agent_type == 'woodcutter' else "Martelo")
+                    return ("REQUEST_REPAIR", agent_pos[0], agent_pos[1], target_smith['id'], f"O {tool_n} quebrou! Solicitando reparo a {target_smith['name']}.")
+                
+                msg_log = f"Indo consertar a ferramenta com {target_smith['name']}." if is_local else f"📡 RÁDIO GLOBAL | {agent_name}: 'S.O.S! Ferramenta quebrada!' | 📻 {target_smith['name']} (X:{target_smith['x']}, Z:{target_smith['z']}): 'Pode vir à forja, estou livre!'"
+                return self._move_towards(agent_pos, (target_smith['x'], target_smith['z']), blocked_coords, msg_log)
+            else:
+                return self._wander(agent_pos, blocked_coords, "Ferramenta quebrada! Nenhum Ferreiro respondendo ao rádio...")
 
         # PRIORIDADE 2: TRABALHO
         if is_comfortable:
@@ -311,7 +459,62 @@ class SurvivalController:
                 if not self.inventory_sys.can_collect_log(inv):
                     self.agent_states[agent_id] = "FULL_INVENTORY"
                     return self._wander(agent_pos, blocked_coords, "Mochila de madeira cheia! Vagando até encontrar um comprador.")
+                
+                # Coleta de troncos caídos é prioridade (Limpar o chão)
+                if radar_data.get('logs_on_ground'):
+                    self.agent_states[agent_id] = "COLLECTING"
+                    target = radar_data['logs_on_ground'][0]
+                    if target['dist'] <= 3:
+                        return ("COLLECT_LOG", agent_pos[0], agent_pos[1], target['id'], "Apanhando tronco do chão para a mochila.")
+                    return self._move_towards(agent_pos, (target['x'], target['z']), blocked_coords, "Indo recolher um tronco caído.")
 
+                # === 1. MODO REFLORESTAMENTO INTELIGENTE (Cura e Dispersão) ===
+                if inv.get('tree_seed', 0) > 0:
+                    # A) Prioridade Absoluta: Cicatrizar a Floresta (Plantar sobre os Tocos)
+                    if radar_data.get('stumps'):
+                        self.agent_states[agent_id] = "REFORESTING"
+                        target_stump = radar_data['stumps'][0]
+                        if target_stump['dist'] <= 3.0:
+                            return ("REPLACE_STUMP", agent_pos[0], agent_pos[1], {"x": target_stump['x'], "z": target_stump['z'], "stump_id": target_stump['id']}, "Extraindo toco morto e plantando nova muda no mesmo local.")
+                        return self._move_towards(agent_pos, (target_stump['x'], target_stump['z']), blocked_coords, "Indo revitalizar a área de um toco cortado.")
+                    
+                    # B) Equilíbrio Dinâmico: Se não há tocos, ele intercala Plantio e Corte.
+                    # Rola o dado para não despejar tudo de uma vez, ou planta forçosamente se houver extinção total.
+                    trees_alive = len(radar_data.get('trees', []))
+                    if trees_alive == 0 or random.random() < 0.20:
+                        self.agent_states[agent_id] = "SCATTERING_SEEDS"
+                        
+                        # Aplicação rigorosa da Lei de Zoneamento (Margem de 1 Bloco das Fazendas)
+                        restricted_plot_coords = set()
+                        for p in world_plots:
+                            p_start_x = p['startX']
+                            p_start_z = p['startZ']
+                            p_max_x = p_start_x + (p['width'] - 1) * 2
+                            p_max_z = p_start_z + (p['height'] - 1) * 2
+                            
+                            for x in range(p_start_x - 2, p_max_x + 3, 2):
+                                for z in range(p_start_z - 2, p_max_z + 3, 2):
+                                    restricted_plot_coords.add((x, z))
+                        
+                        # Carrega todas as árvores para evitar o plantio "em fila"
+                        existing_trees = [(e.get('x'), e.get('z')) for e in world_entities if e.get('type') in ['tree', 'stump']]
+                        
+                        moves = [(0, -2), (0, 2), (-2, 0), (2, 0), (2, 2), (-2, -2), (2, -2), (-2, 2)]
+                        random.shuffle(moves)
+                        
+                        for mx, mz in moves:
+                            nx = max(-24, min(24, agent_pos[0] + mx))
+                            nz = max(-24, min(24, agent_pos[1] + mz))
+                            
+                            if (nx, nz) not in blocked_coords and (nx, nz) not in restricted_plot_coords:
+                                # Prevenção de Enfileiramento: Avalia a vizinhança na mesma linha/coluna
+                                alignment = sum(1 for tx, tz in existing_trees if (tx == nx or tz == nz) and math.hypot(tx-nx, tz-nz) < 10)
+                                if alignment < 2:
+                                    return ("PLANT_TREE", agent_pos[0], agent_pos[1], {"x": nx, "z": nz}, "Espalhando semente selvagem fora das propriedades.")
+                        
+                        return self._wander(agent_pos, blocked_coords, "Procurando clareira fértil para plantar (afastado de fazendas).")
+
+                # 2. Trabalho de campo clássico (Corte)
                 if radar_data.get('logs_on_ground'):
                     self.agent_states[agent_id] = "COLLECTING"
                     target = radar_data['logs_on_ground'][0]
@@ -326,7 +529,23 @@ class SurvivalController:
                         return ("CHOP_TREE", agent_pos[0], agent_pos[1], target['id'], "Derrubando árvore para extrair madeira.")
                     return self._move_towards(agent_pos, (target['x'], target['z']), blocked_coords, "Indo até uma árvore para cortar.")
 
-                return self._wander(agent_pos, blocked_coords, "Procurando florestas para cortar.")
+                # === 3. DESMATAMENTO TOTAL: A HORA DE GASTAR DINHEIRO ===
+                # Se não há árvores, nem troncos, e a mochila não está cheia:
+                self.agent_states[agent_id] = "SEEK_SEED"
+                my_boycotts = self.memory_sys.agent_memories.get(agent_id, {}).get('boycotts', {})
+                active_boycotts = [b for b, tick in my_boycotts.items() if current_tick - tick < 50]
+                
+                # Invoca o protocolo de Sinal Global B2B (Lenhador -> Ferreiro)
+                target_smith, is_local = self._find_service_provider(agent_pos, agent_id, 'blacksmith', radar_data, all_agents, active_boycotts)
+                
+                if target_smith:
+                    if target_smith['dist'] <= 3.0:
+                        return ("TRADE_TREE_SEED", agent_pos[0], agent_pos[1], target_smith['id'], f"Floresta vazia! Comprando Kits de Plantio de {target_smith['name']}.")
+                    
+                    msg_log = f"Indo comprar sementes de {target_smith['name']}." if is_local else f"📡 RÁDIO GLOBAL | {agent_name}: 'A floresta acabou, procuro kits de plantio!' | 📻 {target_smith['name']} (X:{target_smith['x']}, Z:{target_smith['z']}): 'A forja tem estoque!'"
+                    return self._move_towards(agent_pos, (target_smith['x'], target_smith['z']), blocked_coords, msg_log)
+                
+                return self._wander(agent_pos, blocked_coords, "A floresta foi dizimada. Nenhum Ferreiro detectado na rede global para fornecer sementes.")
                     
             elif agent_type == 'builder':
                 # 1. Verifica Contrato Ativo
@@ -353,9 +572,35 @@ class SurvivalController:
                         missing_coords = [c for c in perimeter_coords if c not in built_fences and c not in built_gates]
                         
                         if not missing_coords:
-                            return ("FINISH_CONTRACT", agent_pos[0], agent_pos[1], None, "Obra concluída! A fazenda do cliente está 100% protegida.")
+                            # === PROTOCOLO DE EVACUAÇÃO DE OBRA ===
+                            # A obra está pronta, mas o contrato SÓ expira quando ele estiver na rua!
+                            is_inside = (p_start_x <= agent_pos[0] <= p_max_x) and (p_start_z <= agent_pos[1] <= p_max_z)
+                            
+                            if is_inside:
+                                self.agent_states[agent_id] = "LEAVING_SITE"
+                                exterior_nodes = []
+                                
+                                # Varre os portões recém-instalados para achar uma coordenada vizinha lá fora
+                                for gx, gz in built_gates:
+                                    for dx, dz in [(2,0), (-2,0), (0,2), (0,-2)]:
+                                        nx, nz = gx+dx, gz+dz
+                                        # Se a coordenada limítrofe estiver ESTRITAMENTE fora da propriedade
+                                        if not (p_start_x <= nx <= p_max_x and p_start_z <= nz <= p_max_z):
+                                            if (nx, nz) not in blocked_coords:
+                                                exterior_nodes.append((nx, nz))
+                                                
+                                if exterior_nodes:
+                                    # Pega a calçada livre mais próxima do portão e direciona-se a ela
+                                    exterior_nodes.sort(key=lambda c: math.hypot(c[0]-agent_pos[0], c[1]-agent_pos[1]))
+                                    return self._move_towards(agent_pos, exterior_nodes[0], blocked_coords, "Obra concluída! Evacuando o terreno do cliente pelo portão de saída...")
+                                else:
+                                    # Fallback dinâmico: Anda até esbarrar na saída
+                                    return self._wander(agent_pos, blocked_coords, "Obra concluída! Procurando saída do terreno...")
+                            else:
+                                # O agente está fisicamente fora da zona restrita! Pode rasgar o contrato.
+                                return ("FINISH_CONTRACT", agent_pos[0], agent_pos[1], None, "Obra concluída e terreno evacuado! A fazenda do cliente está 100% protegida.")
                         
-                        # === NOVO: MATRIZ DE EXCLUSÃO DE QUINAS ===
+                       # === NOVO: MATRIZ DE EXCLUSÃO DE QUINAS ===
                         # Identifica os 4 vértices exatos do lote
                         corners = [
                             (p_start_x, p_start_z),
@@ -364,7 +609,13 @@ class SurvivalController:
                             (p_max_x, p_max_z)
                         ]
                         
-                        needs_gate = len(built_gates) == 0
+                        # =====================================================================
+                        # === CORREÇÃO CRÍTICA: AUDITORIA DE ESCOPO ESPACIAL (ANTI-SELO) ===
+                        # =====================================================================
+                        # Avalia exclusivamente se ESTE perímetro específico possui um portão,
+                        # em vez de perguntar se existe algum portão no mundo inteiro.
+                        plot_gates = [c for c in perimeter_coords if c in built_gates]
+                        needs_gate = len(plot_gates) == 0
                         
                         if needs_gate:
                             if inv.get('gates', 0) > 0:
@@ -381,9 +632,26 @@ class SurvivalController:
                                     return ("BUILD_NEW_GATE", agent_pos[0], agent_pos[1], {"x": target[0], "z": target[1], "plot_id": plot_id}, "Instalando o portão principal na lateral do terreno.")
                                 return self._move_towards(agent_pos, target, blocked_coords, "Indo instalar o portão do cliente.")
                             else:
-                                if inv.get('logs', 0) >= 2 and inv.get('stones', 0) >= 4:
+                                if inv.get('logs', 0) >= 2 and inv.get('stones', 0) >= 1 and inv.get('metal_parts', 0) >= 2:
                                     self.agent_states[agent_id] = "CRAFTING"
-                                    return ("CRAFT_GATE", agent_pos[0], agent_pos[1], None, "Fabricando Portão (2 Troncos, 4 Pedras).")
+                                    return ("CRAFT_GATE", agent_pos[0], agent_pos[1], None, "Fabricando Portão (2 Troncos, 1 Pedra, 2 Peças Metálicas).")
+                                elif inv.get('metal_parts', 0) < 2:
+                                    # Interrompe tudo e vai procurar um ferreiro!
+                                    self.agent_states[agent_id] = "SEEK_METAL"
+                                    my_boycotts = self.memory_sys.agent_memories.get(agent_id, {}).get('boycotts', {})
+                                    active_boycotts = [b for b, tick in my_boycotts.items() if current_tick - tick < 50]
+                                    
+                                    # Invoca o protocolo de Sinal Global B2B (Construtor -> Ferreiro)
+                                    target_smith, is_local = self._find_service_provider(agent_pos, agent_id, 'blacksmith', radar_data, all_agents, active_boycotts)
+                                    
+                                    if target_smith:
+                                        if target_smith['dist'] <= 3:
+                                            return ("TRADE_METAL_PARTS", agent_pos[0], agent_pos[1], target_smith['id'], f"Comprando Peças Metálicas de {target_smith['name']}.")
+                                        
+                                        msg_log = f"Indo adquirir metal de {target_smith['name']}." if is_local else f"📡 RÁDIO GLOBAL | {agent_name}: 'Encomenda: Preciso de metais para o portão!' | 📻 {target_smith['name']} (X:{target_smith['x']}, Z:{target_smith['z']}): 'Metal pronto!'"
+                                        return self._move_towards(agent_pos, (target_smith['x'], target_smith['z']), blocked_coords, msg_log)
+                                    else:
+                                        return self._wander(agent_pos, blocked_coords, "Obra parada por falta de metal! Nenhum Ferreiro acessível na rede.")
                         else:
                             # (O bloco das Cercas continua igual daqui em diante)
                             if inv.get('fences', 0) > 0:
@@ -417,13 +685,16 @@ class SurvivalController:
                     self.agent_states[agent_id] = "SEEK_LOGS"
                     my_boycotts = self.memory_sys.agent_memories.get(agent_id, {}).get('boycotts', {})
                     active_boycotts = [w for w, tick in my_boycotts.items() if current_tick - tick < 50]
-                    woodcutters = [p for p in radar_data.get('other_agents', []) if p['type'] == 'woodcutter' and p['id'] not in active_boycotts]
                     
-                    if woodcutters:
-                        target_wc = woodcutters[0]
+                    # Invoca o protocolo de Sinal Global B2B (Construtor -> Lenhador)
+                    target_wc, is_local = self._find_service_provider(agent_pos, agent_id, 'woodcutter', radar_data, all_agents, active_boycotts)
+                    
+                    if target_wc:
                         if target_wc['dist'] <= 3:
                             return ("TRADE_LOGS_BULK", agent_pos[0], agent_pos[1], target_wc['id'], f"Comprando madeira em lote de {target_wc['name']}.")
-                        return self._move_towards(agent_pos, (target_wc['x'], target_wc['z']), blocked_coords, f"Indo comprar madeira de {target_wc['name']}.")
+                        
+                        msg_log = f"Indo negociar madeira de {target_wc['name']}." if is_local else f"📡 RÁDIO GLOBAL | {agent_name}: 'Empreitada requer madeira em lote!' | 📻 {target_wc['name']} (X:{target_wc['x']}, Z:{target_wc['z']}): 'Tenho excedente pronto a carregar!'"
+                        return self._move_towards(agent_pos, (target_wc['x'], target_wc['z']), blocked_coords, msg_log)
 
                 # 3. Reparos ou Fabricação de Estoque Frio
                 if inv.get('fences', 0) > 0 and radar_data.get('broken_fences'):
@@ -434,6 +705,30 @@ class SurvivalController:
                     return self._move_towards(agent_pos, (target['x'], target['z']), blocked_coords, "Deslocando para reparo.")
                 
                 return self._wander(agent_pos, blocked_coords, "Mochila cheia. Aguardando novos contratos de obras.")
+            
+            elif agent_type == 'blacksmith':
+                if inv.get('metal_parts', 0) >= 10 and inv.get('tree_seed', 0) >= 20:
+                    self.agent_states[agent_id] = "FULL_INVENTORY"
+                    return self._wander(agent_pos, blocked_coords, "Estoque de forja e sementes cheios. Vagando à espera de clientes.")
+                    
+                # Prioridade 1: Metal para os construtores
+                if inv.get('stones', 0) >= 2 and inv.get('metal_parts', 0) < 10:
+                    self.agent_states[agent_id] = "CRAFTING"
+                    return ("CRAFT_METAL_PART", agent_pos[0], agent_pos[1], None, "Batendo minério na bigorna para forjar Peças Metálicas.")
+                    
+                # Prioridade 2: Sementes para os lenhadores
+                if inv.get('stones', 0) >= 1 and inv.get('tree_seed', 0) < 20:
+                    self.agent_states[agent_id] = "CRAFTING"
+                    return ("CRAFT_TREE_SEED", agent_pos[0], agent_pos[1], None, "Triturando minerais químicos para criar Kits de Reflorestamento.")
+                    
+                self.agent_states[agent_id] = "SEEK_STONES"
+                if radar_data.get('stones_on_ground'):
+                    target = radar_data['stones_on_ground'][0]
+                    if target['dist'] <= 3:
+                        return ("COLLECT_STONE", agent_pos[0], agent_pos[1], target['id'], "Extraindo pedra bruta do solo.")
+                    return self._move_towards(agent_pos, (target['x'], target['z']), blocked_coords, "Indo coletar pedra bruta.")
+                    
+                return self._wander(agent_pos, blocked_coords, "Procurando minérios pelo mapa para alimentar a forja.")
                     
             elif agent_type == 'farmer':
                 # === NOVO: INSTINTO PRIMÁRIO DE FORRAGEAMENTO E CAPITAL SEMENTE ===
@@ -463,17 +758,19 @@ class SurvivalController:
                         my_boycotts = self.memory_sys.agent_memories.get(agent_id, {}).get('boycotts', {})
                         active_boycotts = [f_id for f_id, tick_banned in my_boycotts.items() if current_tick - tick_banned < 50]
                         
-                        peer_farmers = [p for p in radar_data.get('other_agents', []) if p['type'] == 'farmer' and p['id'] not in active_boycotts]
+                        # Invoca o protocolo de Sinal Global (Fazendeiro -> Fazendeiro)
+                        target_farmer, is_local = self._find_service_provider(agent_pos, agent_id, 'farmer', radar_data, all_agents, active_boycotts)
                         
-                        if peer_farmers:
-                            target_farmer = peer_farmers[0]
+                        if target_farmer:
                             if target_farmer['dist'] <= 3.0:
                                 return ("TRADE", agent_pos[0], agent_pos[1], target_farmer['id'], f"Investindo: Comprando batatas de {target_farmer['name']} para extrair sementes!")
-                            return self._move_towards(agent_pos, (target_farmer['x'], target_farmer['z']), blocked_coords, f"Perseguindo {target_farmer['name']} para comprar capital semente.")
+                            
+                            msg_log = f"Perseguindo {target_farmer['name']}." if is_local else f"📡 RÁDIO GLOBAL | {agent_name}: 'Falência agrícola! Preciso de sementes urgentes!' | 📻 {target_farmer['name']} (X:{target_farmer['x']}, Z:{target_farmer['z']}): 'Venha comprar os meus excedentes!'"
+                            return self._move_towards(agent_pos, (target_farmer['x'], target_farmer['z']), blocked_coords, msg_log)
                         else:
-                            return self._wander(agent_pos, blocked_coords, "Sem sementes e sem recursos visíveis. Procurando vendedores de excedente.")
+                            return self._wander(agent_pos, blocked_coords, "Sem sementes e sem vendedores ativos no mundo. Procurando alternativas de falência.")
                     else:
-                        return self._wander(agent_pos, blocked_coords, "Falido e sem sementes. Vagando pelo mapa à espera de um milagre.")
+                        return self._wander(agent_pos, blocked_coords, "Falido e sem sementes. Vagando pelo mapa à espera de um milagre biológico.")
 
                 # === TRABALHO NORMAL DE CAMPO ===
                 self.agent_states[agent_id] = "FARMER"
@@ -537,19 +834,23 @@ class SurvivalController:
                     
                     return self._wander(agent_pos, blocked_coords, "Procurando área livre (com recuo) para expandir.")
 
-                # 3. TRABALHO DE CAMPO: O Agente calcula o miolo do seu próprio terreno
-                my_plot = next((p for p in world_plots if p.get('ownerId') == agent_id), None)
+                # 3. TRABALHO DE CAMPO: O Agente calcula o miolo dos seus latifúndios
+                my_plots = [p for p in world_plots if p.get('ownerId') == agent_id]
                 
-                if my_plot:
-                    p_start_x = my_plot['startX']
-                    p_start_z = my_plot['startZ']
-                    p_max_x = p_start_x + (my_plot['width'] - 1) * 2
-                    p_max_z = p_start_z + (my_plot['height'] - 1) * 2
-                    
+                if my_plots:
                     my_interior_coords = set()
-                    for x in range(p_start_x + 2, p_max_x, 2):
-                        for z in range(p_start_z + 2, p_max_z, 2):
-                            my_interior_coords.add((x, z))
+                    
+                    # === CORREÇÃO: CAPACIDADE DE MULTIPLAS FAZENDAS (LATIFÚNDIO) ===
+                    # O cérebro agora agrega o espaço cultivável de TODAS as propriedades que possui
+                    for plot in my_plots:
+                        p_start_x = plot['startX']
+                        p_start_z = plot['startZ']
+                        p_max_x = p_start_x + (plot['width'] - 1) * 2
+                        p_max_z = p_start_z + (plot['height'] - 1) * 2
+                        
+                        for x in range(p_start_x + 2, p_max_x, 2):
+                            for z in range(p_start_z + 2, p_max_z, 2):
+                                my_interior_coords.add((x, z))
 
                     # Classifica as terras usando a visão absoluta do mundo
                     tiles_dict = {(int(t['x']), int(t['z'])): t for t in world_tiles if t.get('x') is not None}
@@ -573,7 +874,7 @@ class SurvivalController:
                             tile_id = tile['id'] if tile else f"tile-{coord[0]}-{coord[1]}"
                             needs_plowing.append((coord[0], coord[1], tile_id))
                             
-                    # === EXECUTA A LISTA DE TAREFAS (Ordem de Prioridade) ===
+                    # === EXECUTA A LISTA DE TAREFAS ===
                     if needs_planting:
                         needs_planting.sort(key=lambda c: math.hypot(c[0]-agent_pos[0], c[1]-agent_pos[1]))
                         target = needs_planting[0]
@@ -588,62 +889,80 @@ class SurvivalController:
                         dist = math.hypot(target[0]-agent_pos[0], target[1]-agent_pos[1])
                         if dist <= 3.0:
                             return ("PLOW", agent_pos[0], agent_pos[1], {"id": target[2], "x": target[0], "z": target[1]}, "Arando solo virgem para expandir plantação.")
-                        return self._move_towards(agent_pos, (target[0], target[1]), blocked_coords, "Buscando terreno interno para arar.")
+                        return self._move_towards(agent_pos, (target[0], target[1]), blocked_coords, "Buscando terreno interno livre para arar.")
                     else:
-                        # === VERIFICAÇÃO DE SEGURANÇA (NOVA OBRA) ===
-                        # A fazenda está plantada. Mas já tem o perímetro 100% cercado?
+                        # Verificação de segurança: todas as fazendas estão cercadas?
                         perimeter_coords = []
-                        for px in range(p_start_x, p_max_x + 1, 2):
-                            for pz in range(p_start_z, p_max_z + 1, 2):
-                                if px == p_start_x or px == p_max_x or pz == p_start_z or pz == p_max_z:
-                                    perimeter_coords.append((px, pz))
-                                    
+                        for plot in my_plots:
+                            p_start_x = plot['startX']
+                            p_start_z = plot['startZ']
+                            p_max_x = p_start_x + (plot['width'] - 1) * 2
+                            p_max_z = p_start_z + (plot['height'] - 1) * 2
+                            
+                            for px in range(p_start_x, p_max_x + 1, 2):
+                                for pz in range(p_start_z, p_max_z + 1, 2):
+                                    if px == p_start_x or px == p_max_x or pz == p_start_z or pz == p_max_z:
+                                        perimeter_coords.append((px, pz))
+                                        
                         fence_coords = {(round(e['x']), round(e['z'])) for e in world_entities if e.get('type') in ['fence', 'gate', 'damaged_fence']}
                         missing_fences = [c for c in perimeter_coords if c not in fence_coords]
                         
                         if missing_fences:
-                            # === A CORREÇÃO DE GÊNIO ===
-                            # O Fazendeiro verifica se JÁ EXISTE algum construtor no mundo com o contrato da sua fazenda!
                             is_under_construction = False
                             for mem in self.memory_sys.agent_memories.values():
                                 contract = mem.get('active_contract')
-                                if contract and contract.get('plot_id') == my_plot['id']:
+                                # O construtor contratado está a trabalhar nalguma das fazendas do agente?
+                                if contract and any(contract.get('plot_id') == plot['id'] for plot in my_plots):
                                     is_under_construction = True
                                     break
                                     
                             if is_under_construction:
                                 self.agent_states[agent_id] = "WAITING_BUILDER"
-                                return self._wander(agent_pos, blocked_coords, "Obra em andamento! Aguardando o construtor finalizar o serviço.")
+                                return self._wander(agent_pos, blocked_coords, "Obra em andamento! Aguardando o construtor finalizar os meus perímetros.")
                                 
                             self.agent_states[agent_id] = "SEEK_BUILDER"
-                            
-                            # Filtra os construtores que já recusaram obras em outros terrenos
                             my_boycotts = self.memory_sys.agent_memories.get(agent_id, {}).get('boycotts', {})
                             active_boycotts = [b_id for b_id, tick in my_boycotts.items() if current_tick - tick < 50]
                             
-                            builders = [p for p in radar_data.get('other_agents', []) if p['type'] == 'builder' and p['id'] not in active_boycotts]
+                            target_builder, is_local = self._find_service_provider(agent_pos, agent_id, 'builder', radar_data, all_agents, active_boycotts)
                             
-                            if builders:
-                                target_builder = builders[0]
+                            if target_builder:
                                 if target_builder['dist'] <= 3.0:
-                                    return ("HIRE_BUILDER", agent_pos[0], agent_pos[1], target_builder['id'], f"Contratando o construtor {target_builder['name']} para cercar a minha propriedade!")
-                                return self._move_towards(agent_pos, (target_builder['x'], target_builder['z']), blocked_coords, "Perseguindo construtor para firmar contrato de obra.")
+                                    return ("HIRE_BUILDER", agent_pos[0], agent_pos[1], target_builder['id'], f"Contratando o construtor {target_builder['name']} para finalizar as minhas propriedades!")
+                                msg_log = "Visualizou o construtor, indo firmar contrato." if is_local else f"📡 RÁDIO GLOBAL | {agent_name}: 'Preciso de um Arquiteto! Nova empreitada!' | 📻 {target_builder['name']}: 'Estou a caminho!'"
+                                return self._move_towards(agent_pos, (target_builder['x'], target_builder['z']), blocked_coords, msg_log)
                             else:
-                                return self._wander(agent_pos, blocked_coords, "Fazenda plantada! Vagando à procura de um Construtor livre para erguer as cercas.")
+                                return self._wander(agent_pos, blocked_coords, "Fazenda plantada! Nenhum construtor respondeu ao sinal global. Aguardando...")
                         else:
-                            # === LIBERDADE ABSOLUTA ===
                             self.agent_states[agent_id] = "EXPLORE"
-                            return self._wander(agent_pos, blocked_coords, "Fazenda 100% plantada e murada! Explorando o mundo livremente.")
+                            return self._wander(agent_pos, blocked_coords, "Latifúndio 100% produtivo e protegido! Explorando o mundo livremente.")
                         
             # Fim do bloco "if is_comfortable:" e das profissões
 
         # =========================================================
-        # PRIORIDADE 4: Exploração (O FALLBACK GLOBAL)
+        # PRIORIDADE 4: Exploração e Adaptação Social (Mobilidade)
         # =========================================================
-        # ATENÇÃO À INDENTAÇÃO AQUI! 
-        # Este bloco captura todos os agentes que não têm profissão ou não têm
-        # condições de trabalhar (ex: falta de sementes), garantindo que
-        # NUNHUM agente saia desta função sem retornar uma ação.
+        # Se o agente não tiver profissão (Explorador) ou for um Fazendeiro sem terra
+        # que já perdeu a esperança de achar espaço, ele analisa o mercado de trabalho.
+        if agent_type in ['character', 'farmer']:
+            if current_tick % 50 == 0: # Analisa o mercado a cada 50 ticks para poupar CPU
+                census = {'farmer': 0, 'woodcutter': 0, 'builder': 0, 'blacksmith': 0}
+                for a in all_agents:
+                    if a.get('type') in census:
+                        census[a['type']] += 1
+                
+                # Se alguma profissão vital estiver extinta ou em risco crítico (0 ou 1 agente)
+                for prof_type, count in census.items():
+                    if count <= 1:
+                        # O agente transcende a sua genética e assume a profissão em falta para salvar a sociedade
+                        prof_names = {'farmer': 'Fazendeiro', 'woodcutter': 'Lenhador', 'builder': 'Construtor', 'blacksmith': 'Ferreiro'}
+                        
+                        # Altera os próprios dados em RAM. O motor encarrega-se de gravar no DB no final do tick.
+                        agent['type'] = prof_type
+                        agent['profession'] = prof_names[prof_type]
+                        
+                        return ("MOVE", agent_pos[0], agent_pos[1], None, f"MUDANÇA DE CARREIRA: A sociedade precisava de {prof_names[prof_type]}s! O agente readaptou-se para equilibrar a economia.")
+
         self.agent_states[agent_id] = "EXPLORE"
         return self._wander(agent_pos, blocked_coords, None)
 
@@ -676,19 +995,19 @@ class SurvivalController:
     # === ALGORITMO DE DESVIO E NAVEGAÇÃO ===
     def _move_towards(self, current, target, blocked_coords, log_msg=None):
         # --- ALGORITMO PATHFINDING (BFS/A* Híbrido) PARA DESVIO INTELIGENTE ---
-        # Garante que o agente contorne cercas e árvores para alcançar o alvo,
-        # erradicando loops de colisão.
         start = (round(current[0]), round(current[1]))
         goal = (round(target[0]), round(target[1]))
         
         queue = [(start, [])]
         visited = set([start])
         
-        # Movimentos possíveis na malha (4 retas, 4 diagonais)
         moves = [(0, -2), (0, 2), (-2, 0), (2, 0), (2, 2), (-2, -2), (2, -2), (-2, 2)]
         
         nodes_evaluated = 0
-        MAX_NODES = 250 # Proteção de CPU: Varre uma área grande o suficiente para contornar qualquer fazenda
+        # === CORREÇÃO ESPACIAL: EXPANSAO DA BUSCA HEURÍSTICA ===
+        # Elevado de 250 para 400. Permite contornar macro-fazendas no late-game 
+        # sem ativar o fallback guloso prematuramente, que causa "ghosting" em muros.
+        MAX_NODES = 400
         
         while queue and nodes_evaluated < MAX_NODES:
             (cx, cz), path = queue.pop(0)

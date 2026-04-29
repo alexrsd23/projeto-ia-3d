@@ -13,10 +13,11 @@ class SpatialMemory:
         """Garante que o agente tem um cérebro alocado para memórias."""
         if agent_id not in self.agent_memories:
             self.agent_memories[agent_id] = {
-                'food': {},      # Dicionário de coordenadas com batatas (prontas ou a crescer)
-                'farms': {},     # Dicionário de terras aráveis ou fazendas vazias
-                'hazards': {},    # Locais a evitar (cactos, etc.)
-                'rejections': [] # NOVO: Lista de corações partidos (Tabus Genéticos)
+                'food': {},      
+                'farms': {},     
+                'hazards': {},    
+                'rejections': [], 
+                'children_count': 0 # <--- NOVO: O contador biológico geracional
             }
 
     def update_from_perception(self, agent_id, radar_data, current_tick):
@@ -157,15 +158,18 @@ class SpatialMemory:
                     for str_coord, data in db_mem[category].items():
                         x, z = map(int, str_coord.split(','))
                         self.agent_memories[agent_id][category][(x, z)] = data
+            
             if 'rejections' in db_mem:
                 self.agent_memories[agent_id]['rejections'] = db_mem['rejections']
-            
-            # === NOVO: PERSISTÊNCIA DO CONTRATO ===
             if 'active_contract' in db_mem and db_mem['active_contract'] is not None:
                 self.agent_memories[agent_id]['active_contract'] = db_mem['active_contract']
-                
-            # === NOVO: PERSISTÊNCIA DOS LOOTS IGNORADOS ===
             if 'ignored_loots' in db_mem:
                 self.agent_memories[agent_id]['ignored_loots'] = db_mem['ignored_loots']
-        except:
-            pass
+            if 'boycotts' in db_mem:
+                self.agent_memories[agent_id]['boycotts'] = db_mem['boycotts']
+                
+            # === NOVO: PERSISTÊNCIA DA PROLE ===
+            if 'children_count' in db_mem:
+                self.agent_memories[agent_id]['children_count'] = db_mem['children_count']
+        except Exception as e:
+            print(f"Erro ao carregar memória para {agent_id}: {e}")

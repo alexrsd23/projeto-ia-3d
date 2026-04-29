@@ -15,7 +15,7 @@ export default function SurvivalDashboard() {
         if (response.ok) {
           const data = await response.json();
           // Filtra apenas os agentes biológicos (exclui árvores, pedras, cercas, etc)
-          const sentientTypes = ['farmer', 'woodcutter', 'builder', 'character'];
+          const sentientTypes = ['farmer', 'woodcutter', 'builder', 'blacksmith', 'character'];
           const filteredAgents = data.filter((e: any) => sentientTypes.includes(e.type));
           setAgents(filteredAgents);
         }

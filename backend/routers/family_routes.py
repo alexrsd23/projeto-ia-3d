@@ -46,6 +46,7 @@ def register_marriage(request: MarriageRequest):
             OPTIONAL MATCH p4=(a)<-[:PARENT_OF]-()-[:PARENT_OF]-()-[:PARENT_OF]->(b)
             OPTIONAL MATCH p5=(b)<-[:PARENT_OF]-()-[:PARENT_OF]-()-[:PARENT_OF]->(a)
             RETURN (p1 IS NOT NULL OR p2 IS NOT NULL OR p3 IS NOT NULL OR p4 IS NOT NULL OR p5 IS NOT NULL) AS is_incest
+            LIMIT 1
             """
             incest_check = session.run(query_incest, idA=request.agent_a_id, idB=request.agent_b_id).single()
             
@@ -78,7 +79,7 @@ def get_family_tree():
     # 1. Busca todos os indivíduos que já existiram
     query_nodes = """
     MATCH (n:Entity)
-    WHERE n.type IN ['farmer', 'woodcutter', 'builder', 'character', 'loot'] AND n.name IS NOT NULL
+    WHERE n.type IN ['farmer', 'woodcutter', 'builder', 'blacksmith', 'character', 'loot'] AND n.name IS NOT NULL
     RETURN n.id AS id, n.name AS name, n.type AS type, n.profession AS profession, 
            n.color AS color, coalesce(n.married, false) AS married, 
            coalesce(n.age, 0) AS age, coalesce(n.sex, 'M') AS sex,
@@ -113,7 +114,7 @@ def get_individual_family_tree(agent_id: str = Path(..., description="The ID of 
     """
     depth = 5 #geraçoes up/down
     
-    # Query 1: Coletar todos os IDs de nós relevantes
+    # Dentro de get_individual_family_tree()
     query_collect_ids = f"""
     MATCH (n:Entity {{id: $agent_id}})
     OPTIONAL MATCH (n)<-[:PARENT_OF*0..{depth}]-(ancestor:Entity)
@@ -121,11 +122,11 @@ def get_individual_family_tree(agent_id: str = Path(..., description="The ID of 
     WITH n, COLLECT(DISTINCT ancestor) + COLLECT(DISTINCT descendant) AS family_nodes
     UNWIND family_nodes AS node
     MATCH (node)
-    WHERE node.type IN ['farmer', 'woodcutter', 'builder', 'character', 'loot'] AND node.name IS NOT NULL
+    WHERE node.type IN ['farmer', 'woodcutter', 'builder', 'blacksmith', 'character', 'loot'] AND node.name IS NOT NULL
     
     // Busca os parceiros diretos de cada nó da família
     OPTIONAL MATCH (node)-[p:MARRIED_TO|WIDOWED_FROM]-(partner:Entity)
-    WHERE partner.type IN ['farmer', 'woodcutter', 'builder', 'character', 'loot'] AND partner.name IS NOT NULL
+    WHERE partner.type IN ['farmer', 'woodcutter', 'builder', 'blacksmith', 'character', 'loot'] AND partner.name IS NOT NULL
     
     // Retorna o conjunto único de IDs de nós da família e seus parceiros
     WITH COLLECT(DISTINCT node.id) + COLLECT(DISTINCT partner.id) AS all_ids

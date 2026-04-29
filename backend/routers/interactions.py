@@ -13,7 +13,7 @@ def create_entity(entity: EntityModel):
         health: $health, hunger: $hunger, name: $name,
         color: $color, sex: $sex, profession: $profession,
         trustLevel: $trustLevel, lieLevel: $lieLevel,
-        married: $married, age: $age
+        married: $married, age: $age, toolHp: 100.0
     })
     RETURN e
     """
@@ -265,3 +265,10 @@ def get_all_plots():
         return plots
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    
+@router.post("/blacksmith")
+def create_blacksmith(blacksmith: FarmerModel):
+    # Fix: Sobrescreve valores padrão para garantir coerência entre o Cérebro e o Banco
+    blacksmith.type = 'blacksmith'
+    blacksmith.profession = 'Ferreiro'
+    return execute_agent_creation(blacksmith, 'blacksmith')

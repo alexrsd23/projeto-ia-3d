@@ -1,6 +1,7 @@
 import FarmerBust from './FarmerBust';
 import BuilderBust from './BuilderBust';
 import WoodcutterBust from './WoodcutterBust';
+import BlacksmithBust from './BlacksmithBust';
 import type { Entity } from '../../../types';
 
 interface PolaroidAgentCardProps {
@@ -8,24 +9,34 @@ interface PolaroidAgentCardProps {
 }
 
 export default function PolaroidAgentCard({ entity }: PolaroidAgentCardProps) {
-  // Lógica de vida
+  // Lógica de vida biológica e filtragem de loot
   const isDead = (entity.health !== undefined && entity.health <= 0) || entity.type === 'loot';
   const agentColor = entity.color || '#94a3b8';
 
-  // === CORREÇÃO: Usar o 'type' interno do sistema que é 100% à prova de falhas ===
-  let BustComponent = FarmerBust; // Default
+  // === CORREÇÃO: Polimorfismo Visual com Fallback Seguro ===
+  let BustComponent = FarmerBust; // Padrão
   if (entity.type === 'builder') BustComponent = BuilderBust;
   if (entity.type === 'woodcutter') BustComponent = WoodcutterBust;
+  if (entity.type === 'blacksmith') BustComponent = BlacksmithBust;
 
-  // === NOVA LÓGICA: Extrair quantidade de Plobs do inventário ===
-  const inventory = entity.inventoryJSON ? JSON.parse(entity.inventoryJSON) : {};
-  const plobs = inventory.plobs !== undefined ? inventory.plobs : 0;
+  // === EXTRAÇÃO FINANCEIRA E DE INVENTÁRIO ===
+  let plobs = 0;
+  try {
+    const inventory = entity.inventoryJSON ? JSON.parse(entity.inventoryJSON) : {};
+    if (inventory.plobs !== undefined) {
+      plobs = Number(inventory.plobs);
+    }
+  } catch (e) {
+    console.error("Erro ao fazer parse do inventário na Polaroid:", e);
+  }
 
-  // Garante que o texto em baixo da foto também fica sempre correto, mesmo se o BD não enviar a "profession"
+  // === SANITIZAÇÃO DA PROFISSÃO ===
+  // Garante que o texto se mantém coerente mesmo se o DB não preencher o campo 'profession'
   let displayProfession = entity.profession;
   if (!displayProfession) {
     if (entity.type === 'builder') displayProfession = 'Construtor';
     else if (entity.type === 'woodcutter') displayProfession = 'Lenhador';
+    else if (entity.type === 'blacksmith') displayProfession = 'Ferreiro';
     else if (entity.type === 'farmer') displayProfession = 'Fazendeiro';
     else displayProfession = 'Explorador';
   }
@@ -44,7 +55,7 @@ export default function PolaroidAgentCard({ entity }: PolaroidAgentCardProps) {
       transform: 'rotate(-1deg)'
     }}>
       
-      {/* A "Foto" da Polaroid */}
+      {/* A "Foto" da Polaroid (Busto do Agente) */}
       <div style={{
         backgroundColor: '#f1f5f9',
         border: '1px solid #e2e8f0',
@@ -60,7 +71,7 @@ export default function PolaroidAgentCard({ entity }: PolaroidAgentCardProps) {
         </div>
       </div>
 
-      {/* Os Dados Escritos a "Caneta" */}
+      {/* Os Dados (Nome, Profissão, Status e Finanças) */}
       <div style={{ textAlign: 'center', fontFamily: 'system-ui, sans-serif' }}>
         <div style={{ 
           fontWeight: 'bold', 
@@ -90,13 +101,15 @@ export default function PolaroidAgentCard({ entity }: PolaroidAgentCardProps) {
           {isDead ? '💀 FALECIDO' : '❤️ VIVO'}
         </div>
 
-        {/* === NOVO DIV: Quantidade de Plobs com Ícone === */}
+        {/* === CORREÇÃO: Formatação Numérica Segura === */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11px', color: '#64748b', marginTop: '10px', justifyContent: 'center' }}>
           <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ width: '12px', height: '12px' }}>
             <circle cx="50" cy="50" r="45" fill="#fef08a" stroke="#334155" strokeWidth="6" />
             <text x="50" y="65" textAnchor="middle" fill="#334155" fontSize="50" fontWeight="bold">P</text>
           </svg>
-          <span style={{ fontWeight: 'bold', color: '#0f172a' }}>{plobs}</span>
+          <span style={{ fontWeight: 'bold', color: '#0f172a' }}>
+            {plobs.toFixed(2)}
+          </span>
           <span style={{ fontSize: '10px' }}>Plobs</span>
         </div>
       </div>

@@ -10,7 +10,7 @@ interface RouteBounds {
 }
 
 interface DashboardProps {
-  onAddEntity: (type: 'house' | 'character' | 'cactus' | 'farmer' | 'woodcutter' | 'builder' | 'tree' | 'stone' | 'fence' | 'log' | 'wolf' | 'damaged_fence' | 'gate' | 'warehouse' | 'resource_storage' | 'log_cabin', amount?: number) => void;
+  onAddEntity: (type: 'house' | 'character' | 'cactus' | 'farmer' | 'woodcutter' | 'builder' | 'blacksmith' | 'tree' | 'stone' | 'fence' | 'log' | 'wolf' | 'damaged_fence' | 'gate' | 'warehouse' | 'resource_storage' | 'log_cabin', amount?: number) => void;
   isRunning: boolean;
   onToggleSimulation: () => void;
   selectedEntity: Entity | undefined;
@@ -220,6 +220,7 @@ export default function Dashboard({
                 <button className="btn-dropdown-item-light" onClick={() => onAddEntity('farmer', spawnAmount)}>👨‍🌾⁺ Adicionar Fazendeiro</button>
                 <button className="btn-dropdown-item-light" onClick={() => onAddEntity('woodcutter', spawnAmount)}>🪓⁺ Adicionar Lenhador</button>
                 <button className="btn-dropdown-item-light" onClick={() => onAddEntity('builder', spawnAmount)}>👷⁺ Adicionar Construtor</button>
+                <button className="btn-dropdown-item-light" onClick={() => onAddEntity('blacksmith', spawnAmount)}>⚒️⁺ Adicionar Ferreiro</button>
 
                 <div style={{ padding: '8px 16px', fontSize: '11px', fontWeight: 'bold', color: '#94a3b8', textTransform: 'uppercase', background: '#f8fafc' }}>🌲 Natureza</div>
                 <button className="btn-dropdown-item-light" onClick={() => onAddEntity('tree', spawnAmount)}>🌳⁺ Adicionar Árvore</button>
@@ -250,7 +251,7 @@ export default function Dashboard({
           <div className="card-panel">
             <h3 className="panel-title-light">Informação da Entidade</h3>
             {selectedEntity ? (
-              (selectedEntity.type === 'farmer' || selectedEntity.type === 'woodcutter' || selectedEntity.type === 'builder') ? (
+              (selectedEntity.type === 'farmer' || selectedEntity.type === 'woodcutter' || selectedEntity.type === 'builder' || selectedEntity.type === 'blacksmith') ? (
                 // 1. Agentes Inteligentes
                 <CharacterInfoCard entity={selectedEntity} onSaveIdentity={onSaveIdentity} />
               ) : selectedEntity.type === 'wolf' ? (
