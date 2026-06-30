@@ -44,9 +44,8 @@ export default function Tree({ id, position, isSelected, onClick, onMove, setIsD
       e.stopPropagation();
       const intersectPoint = new THREE.Vector3();
       if (e.ray.intersectPlane(dragPlane, intersectPoint)) {
-        const clampedX = Math.max(-24.5, Math.min(24.5, intersectPoint.x));
-        const clampedZ = Math.max(-24.5, Math.min(24.5, intersectPoint.z));
-        groupRef.current.position.set(clampedX, position[1], clampedZ);
+        // === BARREIRAS INVISÍVEIS REMOVIDAS ===
+        groupRef.current.position.set(intersectPoint.x, position[1], intersectPoint.z);
       }
     }
   };

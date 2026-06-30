@@ -38,8 +38,7 @@ export default function CactusObstacle({ id, position, isSelected, onClick, onMo
       finalX = Math.round(finalX / 2) * 2;
       finalZ = Math.round(finalZ / 2) * 2;
 
-      finalX = Math.max(-24, Math.min(24, finalX));
-      finalZ = Math.max(-24, Math.min(24, finalZ));
+      // === AS DUAS LINHAS DE MATH.MAX/MIN FORAM APAGADAS DAQUI ===
 
       groupRef.current.position.set(finalX, position[1], finalZ);
       onMove(id, [finalX, position[1], finalZ]);
@@ -47,17 +46,15 @@ export default function CactusObstacle({ id, position, isSelected, onClick, onMo
   };
 
   const handlePointerMove = (e: any) => {
-    if (dragging && groupRef.current) {
-      e.stopPropagation();
-      const intersectPoint = new THREE.Vector3();
-      const hit = e.ray.intersectPlane(dragPlane, intersectPoint);
-      if (hit) {
-        const clampedX = Math.max(-24, Math.min(24, intersectPoint.x));
-        const clampedZ = Math.max(-24, Math.min(24, intersectPoint.z));
-        groupRef.current.position.set(clampedX, position[1], clampedZ);
+      if (dragging && groupRef.current) {
+        e.stopPropagation();
+        const intersectPoint = new THREE.Vector3();
+        if (e.ray.intersectPlane(dragPlane, intersectPoint)) {
+          // === BARREIRAS INVISÍVEIS REMOVIDAS ===
+          groupRef.current.position.set(intersectPoint.x, position[1], intersectPoint.z);
+        }
       }
-    }
-  };
+    };
 
   return (
     <group 

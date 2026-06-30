@@ -34,18 +34,13 @@ def register_marriage(request: MarriageRequest):
             if data['marriedA'] == True or data['marriedB'] == True:
                 raise HTTPException(status_code=400, detail="A poligamia não é permitida. Um dos agentes já é casado.")
                 
-            if data['profA'] != data['profB']:
-                raise HTTPException(status_code=400, detail=f"Incompatibilidade! {data['profA']} não pode casar com {data['profB']}.")
-                
-            # 2.5 Validação Genética de Consanguinidade
+            # 2.5 Validação Genética de Consanguinidade (Flexibilizada)
             query_incest = """
             MATCH (a:Entity {id: $idA}), (b:Entity {id: $idB})
             OPTIONAL MATCH p1=(a)-[:PARENT_OF*1..]->(b)
             OPTIONAL MATCH p2=(b)-[:PARENT_OF*1..]->(a)
             OPTIONAL MATCH p3=(a)<-[:PARENT_OF]-()-[:PARENT_OF]->(b)
-            OPTIONAL MATCH p4=(a)<-[:PARENT_OF]-()-[:PARENT_OF]-()-[:PARENT_OF]->(b)
-            OPTIONAL MATCH p5=(b)<-[:PARENT_OF]-()-[:PARENT_OF]-()-[:PARENT_OF]->(a)
-            RETURN (p1 IS NOT NULL OR p2 IS NOT NULL OR p3 IS NOT NULL OR p4 IS NOT NULL OR p5 IS NOT NULL) AS is_incest
+            RETURN (p1 IS NOT NULL OR p2 IS NOT NULL OR p3 IS NOT NULL) AS is_incest
             LIMIT 1
             """
             incest_check = session.run(query_incest, idA=request.agent_a_id, idB=request.agent_b_id).single()

@@ -3,7 +3,12 @@ import uuid
 
 class ForestrySystem:
     @staticmethod
-    def process_chopping(tree_entity, current_time, agent_name):
+    def process_chopping(tree_entity, current_time, agent_name, world_bounds=None): # <--- AQUI
+        # Extrai os limites dinâmicos da base de dados (com fallback seguro para -24/24)
+        min_x = world_bounds['minX'] if world_bounds else -24
+        max_x = world_bounds['maxX'] if world_bounds else 24
+        min_z = world_bounds['minZ'] if world_bounds else -24
+        max_z = world_bounds['maxZ'] if world_bounds else 24
         """
         Processa o corte: Transforma a árvore num toco e gera 3 troncos físicos ao redor.
         """
@@ -23,9 +28,9 @@ class ForestrySystem:
         chosen_offsets = random.sample(offsets, 3)
 
         for offset in chosen_offsets:
-            # Trava matemática para o tronco não cair fora do mundo
-            log_x = max(-24, min(24, tree_entity['x'] + offset[0]))
-            log_z = max(-24, min(24, tree_entity['z'] + offset[1]))
+            # Trava matemática dinâmica para o tronco não cair fora do mundo
+            log_x = max(min_x, min(max_x, tree_entity['x'] + offset[0])) # <--- AQUI
+            log_z = max(min_z, min(max_z, tree_entity['z'] + offset[1])) # <--- AQUI
             
             new_logs.append({
                 "id": str(uuid.uuid4()),

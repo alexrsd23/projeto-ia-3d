@@ -65,6 +65,9 @@ export default function App() {
 
   const [plots, setPlots] = useState<PlotData[]>([]);
 
+  // Limites globais do mapa (para Spawn Dinâmico)
+  const [worldBounds, setWorldBounds] = useState({ minX: -24, maxX: 24, minZ: -24, maxZ: 24 });
+
   const saveTileToDatabase = async (tileData: TileData) => {
     try { await fetch('http://127.0.0.1:8000/api/tiles', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(tileData) }); } catch (error) { console.error(error); }
   };
@@ -131,6 +134,16 @@ export default function App() {
         const resTiles = await fetch('http://127.0.0.1:8000/api/tiles');
         if (resTiles.ok) {
           const savedTiles: TileData[] = await resTiles.json();
+            
+            // === NOVO: Extrai os limites dinâmicos do mundo ===
+            if (savedTiles.length > 0) {
+              const xs = savedTiles.map(t => t.gridX);
+              const zs = savedTiles.map(t => t.gridZ);
+              setWorldBounds({
+                minX: Math.min(...xs), maxX: Math.max(...xs),
+                minZ: Math.min(...zs), maxZ: Math.max(...zs)
+              });
+            }
           setTiles(prev => {
             const newTiles = [...prev];
             savedTiles.forEach(savedTile => {
@@ -180,6 +193,14 @@ export default function App() {
           const responseTiles = await fetch('http://127.0.0.1:8000/api/tiles');
           if (responseTiles.ok) {
             const savedTiles: TileData[] = await responseTiles.json();
+            if (savedTiles.length > 0) {
+              const xs = savedTiles.map(t => t.gridX);
+              const zs = savedTiles.map(t => t.gridZ);
+              setWorldBounds({
+                minX: Math.min(...xs), maxX: Math.max(...xs),
+                minZ: Math.min(...zs), maxZ: Math.max(...zs)
+              });
+            }
             setTiles(prev => {
               const newTiles = [...prev];
               savedTiles.forEach(savedTile => {
@@ -256,20 +277,19 @@ export default function App() {
           rawX = Math.random() * (routeBounds.xMax - routeBounds.xMin) + routeBounds.xMin;
           rawZ = Math.random() * (routeBounds.zMax - routeBounds.zMin) + routeBounds.zMin;
         } else {
-          // O mapa vai de -24 a 24 (tamanho total de 48)
-          rawX = (Math.random() - 0.5) * 48;
-          rawZ = (Math.random() - 0.5) * 48;
+          // === BARREIRAS INVISÍVEIS DESTRUÍDAS ===
+          // Usa os limites dinâmicos do mundo em expansão em vez de 48 fixo
+          const width = worldBounds.maxX - worldBounds.minX;
+          const depth = worldBounds.maxZ - worldBounds.minZ;
+          rawX = Math.random() * width + worldBounds.minX;
+          rawZ = Math.random() * depth + worldBounds.minZ;
         }
 
         // 2. Trava na grade 2x2 para alinhamento perfeito
-        // === CORREÇÃO: Tratamento especial para Edifícios 4x2 ===
         if (['warehouse', 'resource_storage', 'log_cabin'].includes(type)) {
-          // Edifícios de 4m no eixo X precisam nascer num número ÍMPAR para cobrir 2 blocos perfeitos
           snapX = Math.round((rawX - 1) / 2) * 2 + 1;
-          // O eixo Z continua com 2m, logo fica em número PAR
           snapZ = Math.round(rawZ / 2) * 2;
         } else {
-          // Entidades normais (2x2 ou menores) nascem em números PARES
           snapX = Math.round(rawX / 2) * 2;
           snapZ = Math.round(rawZ / 2) * 2;
         }
@@ -279,8 +299,9 @@ export default function App() {
           snapX = Math.max(routeBounds.xMin, Math.min(routeBounds.xMax, snapX));
           snapZ = Math.max(routeBounds.zMin, Math.min(routeBounds.zMax, snapZ));
         } else {
-          snapX = Math.max(-24, Math.min(24, snapX));
-          snapZ = Math.max(-24, Math.min(24, snapZ));
+          // === BARREIRAS INVISÍVEIS DESTRUÍDAS ===
+          snapX = Math.max(worldBounds.minX, Math.min(worldBounds.maxX, snapX));
+          snapZ = Math.max(worldBounds.minZ, Math.min(worldBounds.maxZ, snapZ));
         }
 
         // 4. O RADAR MÁGICO: Pergunta ao sistema se já tem algo ali!

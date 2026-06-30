@@ -17,6 +17,7 @@ class SurvivalController:
         self.memory_sys = SpatialMemory()
         self.agent_states = {} 
         self.farm_planner = FarmPlanner()
+        self.world_bounds = {"minX": -24, "maxX": 24, "minZ": -24, "maxZ": 24}
         
     def _find_service_provider(self, agent_pos, agent_id, required_type, radar_data, all_agents, active_boycotts):
         """
@@ -77,6 +78,42 @@ class SurvivalController:
         inv = self.inventory_sys.parse(agent.get('inventoryJSON', "{}"))
         
         radar_data = self.perception_sys.scan_environment(agent_pos, world_entities, world_tiles, all_agents)
+        
+        # ==============================================================================
+        # === TRIAGEM LEGAL E BLINDAGEM ÓPTICA (ANTI-GHOSTING & ANTI-ROUBO) ===
+        # ==============================================================================
+        # Identifica se o agente possui um contrato ativo para liberar o acesso ao terreno do cliente
+        my_contract_plot_id = None
+        active_contract = self.memory_sys.agent_memories.get(agent_id, {}).get('active_contract')
+        if active_contract:
+            my_contract_plot_id = active_contract.get('plot_id')
+
+        def is_coord_forbidden(cx, cz):
+            """Verifica se a coordenada pertence a um latifúndio no qual o agente não tem passe livre"""
+            for p in world_plots:
+                px_min, pz_min = p['startX'], p['startZ']
+                px_max = px_min + (p['width'] - 1) * 2
+                pz_max = pz_min + (p['height'] - 1) * 2
+                
+                if px_min <= cx <= px_max and pz_min <= cz <= pz_max:
+                    # É proibido se não for o dono E não for o construtor contratado
+                    if p.get('ownerId') != agent_id and p.get('id') != my_contract_plot_id:
+                        return True
+            return False
+
+        # Aplica a cegueira legal: Remove do radar TUDO o que for estático e estiver num lote privado
+        keys_to_blindfold = [
+            'food_ready', 'food_growing', 'empty_farms', 'arable_land', 
+            'trees', 'stones_on_ground', 'loots', 'broken_fences', 'stumps', 'logs_on_ground'
+        ]
+        
+        for key in keys_to_blindfold:
+            if key in radar_data:
+                # Só retém na visão aquilo que NÃO está em zona proibida
+                radar_data[key] = [item for item in radar_data[key] if not is_coord_forbidden(item['x'], item['z'])]
+        # ==============================================================================
+        
+        # O Hipocampo só grava o que é legalmente acessível
         self.memory_sys.update_from_perception(agent_id, radar_data, current_tick)
         
         # ==============================================================================
@@ -109,17 +146,20 @@ class SurvivalController:
         connectable_types = {'fence', 'gate', 'damaged_fence'}
         connectable_coords = set()
         
-        # === NOVO: VISTO DE TRABALHO (WORK VISA) ===
-        # Identifica se o agente possui um contrato ativo para liberar o acesso ao terreno do cliente
-        my_contract_plot_id = None
-        active_contract = self.memory_sys.agent_memories.get(agent_id, {}).get('active_contract')
-        if active_contract:
-            my_contract_plot_id = active_contract.get('plot_id')
+        # # === NOVO: VISTO DE TRABALHO (WORK VISA) ===
+        # # Identifica se o agente possui um contrato ativo para liberar o acesso ao terreno do cliente
+        # my_contract_plot_id = None
+        # active_contract = self.memory_sys.agent_memories.get(agent_id, {}).get('active_contract')
+        # if active_contract:
+        #     my_contract_plot_id = active_contract.get('plot_id')
 
         # === ZONAS DE EXCLUSÃO ESPACIAL (PROPRIEDADES) ===
+        # Exceção Comercial: Agentes que estejam ativamente a tentar comprar (ou os próprios donos) ganham passe livre para pisar os cantos do perímetro e aceder ao mercado.
+        is_trading = agent_id in self.agent_states and "TRADE" in self.agent_states[agent_id]
+        
         for plot in world_plots:
             # 1. Donos e Contratados têm passe livre imediato
-            if plot.get('ownerId') == agent_id or plot.get('id') == my_contract_plot_id:
+            if plot.get('ownerId') == agent_id or plot.get('id') == my_contract_plot_id or is_trading:
                 continue 
                 
             p_start_x = plot['startX']
@@ -131,11 +171,8 @@ class SurvivalController:
             p_max_z = p_start_z + (p_height - 1) * 2
             
             # === NOVA LEI DE ZONEAMENTO: PROTOCOLO CATRACA E REPAROS ===
-            # Se o agente já está fisicamente DENTRO do terreno, concedemos amnistia de locomoção.
-            # Ele poderá andar lá dentro, mas as cercas físicas ainda o obrigarão a usar o portão para sair.
             is_trapped = (p_start_x <= agent_pos[0] <= p_max_x) and (p_start_z <= agent_pos[1] <= p_max_z)
             
-            # Concede passe livre ao Construtor caso ele esteja no perímetro indo realizar um reparo ativo
             is_repairing = False
             if agent_type == 'builder' and radar_data.get('broken_fences'):
                 for bf in radar_data['broken_fences']:
@@ -237,8 +274,8 @@ class SurvivalController:
                     move_x = 2 if dx > 0 else (-2 if dx < 0 else random.choice([-2, 2]))
                     move_z = 2 if dz > 0 else (-2 if dz < 0 else random.choice([-2, 2]))
                     
-                    new_x = max(-24, min(24, agent_pos[0] + move_x))
-                    new_z = max(-24, min(24, agent_pos[1] + move_z))
+                    new_x = max(self.world_bounds['minX'], min(self.world_bounds['maxX'], agent_pos[0] + move_x))
+                    new_z = max(self.world_bounds['minZ'], min(self.world_bounds['maxZ'], agent_pos[1] + move_z))
                     
                     # Usa a nova validação segura
                     if self._is_move_valid(agent_pos, new_x, new_z, move_x, move_z, blocked_coords):
@@ -250,12 +287,16 @@ class SurvivalController:
         if agent_type != 'wolf' and hunger >= 30.0:
             is_married = agent.get('married', False)
             
+            # Tipos humanos válidos para relação (exclui wolf e loot)
+            human_types = ['farmer', 'woodcutter', 'builder', 'blacksmith', 'character']
+            
             if not is_married:
                 my_rejections = self.memory_sys.agent_memories.get(agent_id, {}).get('rejections', [])
                 
+                # CORREÇÃO CRÍTICA: Permite casamento com QUALQUER humano livre, gerando diversidade genética
                 potential_partners = [
                     p for p in radar_data.get('other_agents', []) 
-                    if p['type'] == agent_type and p.get('married', False) == False and p['id'] not in my_rejections
+                    if p['type'] in human_types and p.get('married', False) == False and p['id'] not in my_rejections
                 ]
                 
                 if potential_partners:
@@ -267,43 +308,73 @@ class SurvivalController:
                         self.agent_states[agent_id] = "COURTING"
                         return self._move_towards(agent_pos, (partner['x'], partner['z']), blocked_coords, f"Indo conhecer {partner['name']}.")
             else:
-                can_afford_child = False
+                # === ESTADO: AGENTE JÁ É CASADO ===
+                agent_memory = self.memory_sys.agent_memories.get(agent_id, {})
+                last_baby_tick = agent_memory.get('last_reproduction_tick', -999)
                 
-                # === NOVO: CONTROLE POPULACIONAL EXPONENCIAL ===
-                # O custo multiplica-se por 2 a cada filho que ESTE agente possui.
-                my_kids = self.memory_sys.agent_memories.get(agent_id, {}).get('children_count', 0)
-                cost_multiplier = 2 ** my_kids
-                
-                if agent_type == 'farmer' and inv.get('potatoes', 0) >= (2 * cost_multiplier):
-                    can_afford_child = True
-                elif agent_type == 'woodcutter' and inv.get('logs', 0) >= (5 * cost_multiplier):
-                    can_afford_child = True
-                elif agent_type == 'builder' and inv.get('stones', 0) >= (4 * cost_multiplier): # Base reduzida para 4 para alinhar ao limite de 16 pedras
-                    can_afford_child = True
-                elif agent_type == 'blacksmith' and inv.get('metal_parts', 0) >= (2 * cost_multiplier): # Correção: Inclusão do Ferreiro
-                    can_afford_child = True
-
-                if hunger >= 70.0 and can_afford_child:
-                    my_sex = agent.get('sex', 'M')
-                    target_sex = 'F' if my_sex == 'M' else 'M'
+                # === 1. PERÍODO REFRATÁRIO (COOLDOWN BIOLÓGICO) ===
+                # Impede a metralhadora biológica. Exige um intervalo de 500 ticks entre filhos.
+                if current_tick - last_baby_tick < 500:
+                    pass # O agente ignora a reprodução e cai na lógica de trabalho/exploração
+                else:
+                    spouse_id = agent.get('spouse_id')
+                    my_boycotts = agent_memory.get('boycotts', {})
                     
-                    # === NOVO: Filtra parceiros falidos usando o sistema de boicote ===
-                    my_boycotts = self.memory_sys.agent_memories.get(agent_id, {}).get('boycotts', {})
-                    active_boycotts = [b_id for b_id, tick in my_boycotts.items() if current_tick - tick < 50]
-                    
-                    spouses = [
-                        p for p in radar_data.get('other_agents', [])
-                        if p['type'] == agent_type and p.get('married', False) == True and p.get('sex') == target_sex and p['id'] not in active_boycotts
-                    ]
-                    
-                    if spouses:
-                        spouse = spouses[0] 
-                        if spouse['dist'] <= 3.0:
-                            self.agent_states[agent_id] = "PROCREATING"
-                            return ("PROCREATE", agent_pos[0], agent_pos[1], spouse['id'], f"Momento romântico com {spouse['name']}...")
+                    # === 2. VERIFICAÇÃO DE REJEIÇÃO RECENTE ===
+                    # Se o parceiro falhou na gravidez recentemente, dá espaço e foca no trabalho
+                    if spouse_id in my_boycotts and current_tick - my_boycotts[spouse_id] < 100:
+                        pass
+                    elif spouse_id:
+                        # === 3. AUTOANÁLISE E AUDITORIA BILATERAL UNIFICADA ===
+                        # Dicionário de custos alinhado estritamente com o engine.py
+                        resource_map = {
+                            'farmer': ('potatoes', 2),
+                            'woodcutter': ('logs', 5),
+                            'builder': ('stones', 4),
+                            'blacksmith': ('metal_parts', 2),
+                            'wolf': ('none', 0),
+                            'character': ('none', 0)
+                        }
+                        
+                        my_kids = agent_memory.get('children_count', 0)
+                        my_mult = 2 ** my_kids
+                        my_item, my_base_cost = resource_map.get(agent_type, ('potatoes', 2))
+                        my_cost = my_base_cost * my_mult
+                        
+                        my_plobs = inv.get('plobs', 0.0)
+                        # A trava de liquidez inegociável de 250 plobs para si mesmo
+                        my_funds_ok = my_plobs >= 250.0
+                        my_mats_ok = inv.get(my_item, 0) >= my_cost if my_item != 'none' else True
+                        
+                        if hunger >= 70.0 and my_funds_ok and my_mats_ok:
+                            my_spouse = next((p for p in all_agents if p['id'] == spouse_id), None)
+                            
+                            if my_spouse:
+                                spouse_inv = self.inventory_sys.parse(my_spouse.get('inventoryJSON', "{}"))
+                                spouse_mem = self.memory_sys.agent_memories.get(spouse_id, {})
+                                
+                                spouse_kids = spouse_mem.get('children_count', 0)
+                                spouse_mult = 2 ** spouse_kids
+                                spouse_item, spouse_base_cost = resource_map.get(my_spouse.get('type'), ('potatoes', 2))
+                                spouse_cost = spouse_base_cost * spouse_mult
+                                
+                                # A trava de liquidez inegociável de 250 plobs para o parceiro
+                                spouse_funds_ok = spouse_inv.get('plobs', 0.0) >= 250.0
+                                spouse_mats_ok = spouse_inv.get(spouse_item, 0) >= spouse_cost if spouse_item != 'none' else True
+                                
+                                if spouse_funds_ok and spouse_mats_ok:
+                                    dist = math.hypot(my_spouse.get('x', 0) - agent_pos[0], my_spouse.get('z', 0) - agent_pos[1])
+                                    
+                                    if dist <= 3.0:
+                                        self.agent_states[agent_id] = "PROCREATING"
+                                        return ("PROCREATE", agent_pos[0], agent_pos[1], my_spouse['id'], f"Gerando herdeiro com {my_spouse.get('name')}! (Ambos têm >250 Plobs e materiais)")
+                                    else:
+                                        self.agent_states[agent_id] = "SEEK_SPOUSE"
+                                        return self._move_towards(agent_pos, (my_spouse.get('x', 0), my_spouse.get('z', 0)), blocked_coords, f"Indo ao encontro de {my_spouse.get('name')} para expandir a família.")
                         else:
-                            self.agent_states[agent_id] = "COURTING"
-                            return self._move_towards(agent_pos, (spouse['x'], spouse['z']), blocked_coords, f"Indo encontrar {spouse['name']} para ter um filho.")
+                            # Caso o cônjuge tenha morrido, o sistema de luto/viuvez tratará de resetar o 'married' para False 
+                            # no final do processamento do motor, permitindo um novo casamento no futuro.
+                            pass
                         
         # === PRIORIDADE 1: A OPORTUNIDADE DE OURO (LOOT) ===
         # Antes de pensar em fome ou trabalho, se houver um saco morto no chão e ele não tiver um lobo a persegui-lo, ele vai lá ver!
@@ -470,22 +541,27 @@ class SurvivalController:
 
                 # === 1. MODO REFLORESTAMENTO INTELIGENTE (Cura e Dispersão) ===
                 if inv.get('tree_seed', 0) > 0:
-                    # A) Prioridade Absoluta: Cicatrizar a Floresta (Plantar sobre os Tocos)
+                    
+                    # A) Prioridade Absoluta: Replantar em Tocos no radar visual
                     if radar_data.get('stumps'):
                         self.agent_states[agent_id] = "REFORESTING"
-                        target_stump = radar_data['stumps'][0]
+                        
+                        # MELHORIA: Ordena para focar no toco mais próximo, evitando viagens longas desnecessárias
+                        stumps_sorted = sorted(radar_data['stumps'], key=lambda s: s['dist'])
+                        target_stump = stumps_sorted[0]
+                        
                         if target_stump['dist'] <= 3.0:
                             return ("REPLACE_STUMP", agent_pos[0], agent_pos[1], {"x": target_stump['x'], "z": target_stump['z'], "stump_id": target_stump['id']}, "Extraindo toco morto e plantando nova muda no mesmo local.")
                         return self._move_towards(agent_pos, (target_stump['x'], target_stump['z']), blocked_coords, "Indo revitalizar a área de um toco cortado.")
                     
-                    # B) Equilíbrio Dinâmico: Se não há tocos, ele intercala Plantio e Corte.
+                    # B) Dispersão em Terra Livre: Se não há tocos visíveis, planta numa coordenada segura
                     # Rola o dado para não despejar tudo de uma vez, ou planta forçosamente se houver extinção total.
                     trees_alive = len(radar_data.get('trees', []))
                     if trees_alive == 0 or random.random() < 0.20:
                         self.agent_states[agent_id] = "SCATTERING_SEEDS"
                         
-                        # Aplicação rigorosa da Lei de Zoneamento (Margem de 1 Bloco das Fazendas)
-                        restricted_plot_coords = set()
+                        # === LÊ DIRETAMENTE DA CACHE GLOBAL DO MOTOR (Mantido para respeitar as propriedades) ===
+                        restricted_plot_coords = getattr(self, 'global_restricted_coords', set())
                         for p in world_plots:
                             p_start_x = p['startX']
                             p_start_z = p['startZ']
@@ -496,23 +572,26 @@ class SurvivalController:
                                 for z in range(p_start_z - 2, p_max_z + 3, 2):
                                     restricted_plot_coords.add((x, z))
                         
-                        # Carrega todas as árvores para evitar o plantio "em fila"
+                        # Carrega todas as árvores para evitar o plantio "em fila" (Mantido do Código 1)
                         existing_trees = [(e.get('x'), e.get('z')) for e in world_entities if e.get('type') in ['tree', 'stump']]
                         
+                        # Vetores de movimento possíveis a partir do agente
                         moves = [(0, -2), (0, 2), (-2, 0), (2, 0), (2, 2), (-2, -2), (2, -2), (-2, 2)]
                         random.shuffle(moves)
                         
                         for mx, mz in moves:
-                            nx = max(-24, min(24, agent_pos[0] + mx))
-                            nz = max(-24, min(24, agent_pos[1] + mz))
+                            nx = max(self.world_bounds['minX'], min(self.world_bounds['maxX'], agent_pos[0] + mx))
+                            nz = max(self.world_bounds['minZ'], min(self.world_bounds['maxZ'], agent_pos[1] + mz))
                             
+                            # Condição de Solidez e Proteção Agrícola
                             if (nx, nz) not in blocked_coords and (nx, nz) not in restricted_plot_coords:
                                 # Prevenção de Enfileiramento: Avalia a vizinhança na mesma linha/coluna
                                 alignment = sum(1 for tx, tz in existing_trees if (tx == nx or tz == nz) and math.hypot(tx-nx, tz-nz) < 10)
                                 if alignment < 2:
                                     return ("PLANT_TREE", agent_pos[0], agent_pos[1], {"x": nx, "z": nz}, "Espalhando semente selvagem fora das propriedades.")
                         
-                        return self._wander(agent_pos, blocked_coords, "Procurando clareira fértil para plantar (afastado de fazendas).")
+                        # Se todas as direções imediatas estão bloqueadas, deambula até achar clareira
+                        return self._wander(agent_pos, blocked_coords, "Procurando clareira fértil para plantar (afastado de fazendas e obstáculos).")
 
                 # 2. Trabalho de campo clássico (Corte)
                 if radar_data.get('logs_on_ground'):
@@ -784,9 +863,11 @@ class SurvivalController:
                 # 2. GESTÃO DE PROPRIEDADE: Se não tem terreno, tenta planejar um
                 if not agent.get('owns_plot'):
                     
-                    # === NOVO: LEI DE ZONEAMENTO (Margem de Segurança) ===
-                    # Calcula uma "zona invisível" de 1 bloco (+2 metros) ao redor de cada terreno
-                    restricted_plot_coords = set()
+                    # === LÊ DIRETAMENTE DA CACHE GLOBAL DO MOTOR ===
+                    restricted_plot_coords = getattr(self, 'global_restricted_coords', set())
+                    
+                    # === NOVO: Varredura SATÉLITE Completa ===
+                    sacred_coords = set()
                     for p in world_plots:
                         p_start_x = p['startX']
                         p_start_z = p['startZ']
@@ -907,62 +988,69 @@ class SurvivalController:
                         fence_coords = {(round(e['x']), round(e['z'])) for e in world_entities if e.get('type') in ['fence', 'gate', 'damaged_fence']}
                         missing_fences = [c for c in perimeter_coords if c not in fence_coords]
                         
+                        # 1. VERIFICAÇÃO DE INFRAESTRUTURA (CERCAS)
                         if missing_fences:
                             is_under_construction = False
+                            
+                            # Verifica se já existe um contrato ativo para alguma das minhas propriedades
                             for mem in self.memory_sys.agent_memories.values():
                                 contract = mem.get('active_contract')
                                 # O construtor contratado está a trabalhar nalguma das fazendas do agente?
                                 if contract and any(contract.get('plot_id') == plot['id'] for plot in my_plots):
                                     is_under_construction = True
                                     break
-                                    
+
+                            # Se a obra já começou, o fazendeiro apenas aguarda por perto
                             if is_under_construction:
                                 self.agent_states[agent_id] = "WAITING_BUILDER"
                                 return self._wander(agent_pos, blocked_coords, "Obra em andamento! Aguardando o construtor finalizar os meus perímetros.")
-                                
+
+                            # 2. PROCURA DE MÃO DE OBRA (CONTRATAÇÃO)
                             self.agent_states[agent_id] = "SEEK_BUILDER"
                             my_boycotts = self.memory_sys.agent_memories.get(agent_id, {}).get('boycotts', {})
                             active_boycotts = [b_id for b_id, tick in my_boycotts.items() if current_tick - tick < 50]
-                            
+
                             target_builder, is_local = self._find_service_provider(agent_pos, agent_id, 'builder', radar_data, all_agents, active_boycotts)
-                            
+
                             if target_builder:
+                                # Se o construtor estiver perto (3 unidades), fecha o contrato
                                 if target_builder['dist'] <= 3.0:
                                     return ("HIRE_BUILDER", agent_pos[0], agent_pos[1], target_builder['id'], f"Contratando o construtor {target_builder['name']} para finalizar as minhas propriedades!")
-                                msg_log = "Visualizou o construtor, indo firmar contrato." if is_local else f"📡 RÁDIO GLOBAL | {agent_name}: 'Preciso de um Arquiteto! Nova empreitada!' | 📻 {target_builder['name']}: 'Estou a caminho!'"
+                                
+                                # Caso contrário, vai até ele (ou usa o rádio se estiver longe)
+                                msg_log = "Visualizou o construtor, indo firmar contrato." if is_local else f"📡 RÁDIO GLOBAL | {agent_name}: 'Preciso de um Arquiteto!' | 📻 {target_builder['name']}: 'Estou a caminho!'"
                                 return self._move_towards(agent_pos, (target_builder['x'], target_builder['z']), blocked_coords, msg_log)
+                            
                             else:
-                                return self._wander(agent_pos, blocked_coords, "Fazenda plantada! Nenhum construtor respondeu ao sinal global. Aguardando...")
+                                # Se ninguém respondeu, ele vaga pela fazenda esperando
+                                return self._wander(agent_pos, blocked_coords, "Fazenda plantada! Nenhum construtor disponível no momento. Aguardando...")
+
+                        # 3. MANUTENÇÃO E PATRULHA (ESTADO IDEAL)
                         else:
-                            self.agent_states[agent_id] = "EXPLORE"
-                            return self._wander(agent_pos, blocked_coords, "Latifúndio 100% produtivo e protegido! Explorando o mundo livremente.")
-                        
-            # Fim do bloco "if is_comfortable:" e das profissões
+                            # Se não há cercas faltando, o Fazendeiro entra em modo de vigia da sua propriedade
+                            if my_plots:
+                                my_plot = my_plots[0]  # Foca-se na sua sede principal
+                                center_x = (my_plot['startX'] + my_plot['width'] - 1) // 2 * 2
+                                center_z = (my_plot['startZ'] + my_plot['height'] - 1) // 2 * 2
+                                dist_to_center = math.hypot(center_x - agent_pos[0], center_z - agent_pos[1])
+
+                                # Se ele estiver muito longe do centro da fazenda (> 6 unidades), ele volta
+                                if dist_to_center > 6.0:
+                                    self.agent_states[agent_id] = "PATROLLING"
+                                    return self._move_towards(agent_pos, (center_x, center_z), blocked_coords, "Retornando para patrulhar as minhas terras.")
+                                
+                                # Se já estiver na terra dele e tudo estiver ok, ele explora os arredores da própria sede
+                                self.agent_states[agent_id] = "EXPLORE"
+                                return self._wander(agent_pos, blocked_coords, "Latifúndio 100% protegido! Patrulhando o perímetro da sede.")
+                            
+                            else:
+                                # Caso o agente não tenha terras (improvável para um fazendeiro, mas seguro tratar)
+                                self.agent_states[agent_id] = "EXPLORE"
+                                return self._wander(agent_pos, blocked_coords, "Sem posses no momento. Explorando o mundo em busca de oportunidades.")
 
         # =========================================================
         # PRIORIDADE 4: Exploração e Adaptação Social (Mobilidade)
         # =========================================================
-        # Se o agente não tiver profissão (Explorador) ou for um Fazendeiro sem terra
-        # que já perdeu a esperança de achar espaço, ele analisa o mercado de trabalho.
-        if agent_type in ['character', 'farmer']:
-            if current_tick % 50 == 0: # Analisa o mercado a cada 50 ticks para poupar CPU
-                census = {'farmer': 0, 'woodcutter': 0, 'builder': 0, 'blacksmith': 0}
-                for a in all_agents:
-                    if a.get('type') in census:
-                        census[a['type']] += 1
-                
-                # Se alguma profissão vital estiver extinta ou em risco crítico (0 ou 1 agente)
-                for prof_type, count in census.items():
-                    if count <= 1:
-                        # O agente transcende a sua genética e assume a profissão em falta para salvar a sociedade
-                        prof_names = {'farmer': 'Fazendeiro', 'woodcutter': 'Lenhador', 'builder': 'Construtor', 'blacksmith': 'Ferreiro'}
-                        
-                        # Altera os próprios dados em RAM. O motor encarrega-se de gravar no DB no final do tick.
-                        agent['type'] = prof_type
-                        agent['profession'] = prof_names[prof_type]
-                        
-                        return ("MOVE", agent_pos[0], agent_pos[1], None, f"MUDANÇA DE CARREIRA: A sociedade precisava de {prof_names[prof_type]}s! O agente readaptou-se para equilibrar a economia.")
-
         self.agent_states[agent_id] = "EXPLORE"
         return self._wander(agent_pos, blocked_coords, None)
 
@@ -994,6 +1082,10 @@ class SurvivalController:
 
     # === ALGORITMO DE DESVIO E NAVEGAÇÃO ===
     def _move_towards(self, current, target, blocked_coords, log_msg=None):
+        # === CORREÇÃO: Puxa os limites do mundo ===
+        min_x, max_x = self.world_bounds['minX'], self.world_bounds['maxX']
+        min_z, max_z = self.world_bounds['minZ'], self.world_bounds['maxZ']
+        
         # --- ALGORITMO PATHFINDING (BFS/A* Híbrido) PARA DESVIO INTELIGENTE ---
         start = (round(current[0]), round(current[1]))
         goal = (round(target[0]), round(target[1]))
@@ -1004,38 +1096,31 @@ class SurvivalController:
         moves = [(0, -2), (0, 2), (-2, 0), (2, 0), (2, 2), (-2, -2), (2, -2), (-2, 2)]
         
         nodes_evaluated = 0
-        # === CORREÇÃO ESPACIAL: EXPANSAO DA BUSCA HEURÍSTICA ===
-        # Elevado de 250 para 400. Permite contornar macro-fazendas no late-game 
-        # sem ativar o fallback guloso prematuramente, que causa "ghosting" em muros.
-        MAX_NODES = 400
+        MAX_NODES = 400 
         
         while queue and nodes_evaluated < MAX_NODES:
             (cx, cz), path = queue.pop(0)
             nodes_evaluated += 1
             
-            # Condição de Sucesso: Chegou perto o suficiente do alvo (raio de coleta <= 3.0, mas checamos <= 2.0 para o passo)
             if math.hypot(goal[0] - cx, goal[1] - cz) <= 2.0:
                 if path:
                     return ("MOVE", path[0][0], path[0][1], None, log_msg)
-                break # Já está na origem colado ao alvo, cai para o fallback de descolagem
+                break 
                 
-            # Heurística A*: Ordena movimentos priorizando a direção matemática do objetivo
-            # Isso acelera a busca e gera caminhos naturais (menos robóticos)
             moves.sort(key=lambda m: math.hypot(goal[0] - (cx+m[0]), goal[1] - (cz+m[1])))
             
             for mx, mz in moves:
-                nx = max(-24, min(24, cx + mx))
-                nz = max(-24, min(24, cz + mz))
+                # === CORREÇÃO: Trava dinâmica ===
+                nx = max(min_x, min(max_x, cx + mx))
+                nz = max(min_z, min(max_z, cz + mz))
                 neighbor = (nx, nz)
                 
                 if neighbor not in visited:
-                    # Usa a validação de colisão e anti-ghosting da engine principal
                     if self._is_move_valid((cx, cz), nx, nz, mx, mz, blocked_coords):
                         visited.add(neighbor)
                         queue.append((neighbor, path + [neighbor]))
                         
         # === FALLBACK GULOSO E ANTI-TRAVAMENTO ===
-        # Se estourar o limite de nós (labirinto fechado sem saída), tenta forçar a aproximação
         dx = target[0] - current[0]
         dz = target[1] - current[1]
         
@@ -1052,23 +1137,26 @@ class SurvivalController:
             
         for mx, mz in moves_to_try:
             if mx == 0 and mz == 0: continue
-            nx = max(-24, min(24, current[0] + mx))
-            nz = max(-24, min(24, current[1] + mz))
+            # === CORREÇÃO: Trava dinâmica ===
+            nx = max(min_x, min(max_x, current[0] + mx))
+            nz = max(min_z, min(max_z, current[1] + mz))
             
             if self._is_move_valid(current, nx, nz, mx, mz, blocked_coords):
                 return ("MOVE", nx, nz, None, log_msg)
                 
-        # === A CURA DO LOOP ===
-        # Se até o caminho reto falhar e ele estiver colado numa parede, ele NÃO pode ficar parado. 
-        # Ele aciona o Wander para dar um "passo para trás/lado" e descolar da zona de bloqueio!
         return self._wander(current, blocked_coords, (log_msg or "") + " (Buscando rota alternativa para contornar...)")
         
     def _wander(self, current, blocked_coords, log_msg=None):
+        # === CORREÇÃO: Puxa os limites do mundo ===
+        min_x, max_x = self.world_bounds['minX'], self.world_bounds['maxX']
+        min_z, max_z = self.world_bounds['minZ'], self.world_bounds['maxZ']
+        
         moves = [(0, -2), (0, 2), (-2, 0), (2, 0), (2, 2), (-2, -2), (2, -2), (-2, 2)]
         random.shuffle(moves)
         for mx, mz in moves:
-            nx = max(-24, min(24, current[0] + mx))
-            nz = max(-24, min(24, current[1] + mz))
+            # === CORREÇÃO: Trava dinâmica ===
+            nx = max(min_x, min(max_x, current[0] + mx))
+            nz = max(min_z, min(max_z, current[1] + mz))
             
             if self._is_move_valid(current, nx, nz, mx, mz, blocked_coords):
                 return ("MOVE", nx, nz, None, log_msg)

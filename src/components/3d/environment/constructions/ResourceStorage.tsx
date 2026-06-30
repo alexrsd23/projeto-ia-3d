@@ -51,16 +51,15 @@ export default function ResourceStorage({ id, position, isSelected, onClick, onM
   };
 
   const handlePointerMove = (e: any) => {
-    if (dragging && groupRef.current) {
-      e.stopPropagation();
-      const intersectPoint = new THREE.Vector3();
-      if (e.ray.intersectPlane(dragPlane, intersectPoint)) {
-        const clampedX = Math.max(-24, Math.min(24, intersectPoint.x));
-        const clampedZ = Math.max(-24, Math.min(24, intersectPoint.z));
-        groupRef.current.position.set(clampedX, position[1], clampedZ);
+      if (dragging && groupRef.current) {
+        e.stopPropagation();
+        const intersectPoint = new THREE.Vector3();
+        if (e.ray.intersectPlane(dragPlane, intersectPoint)) {
+          // === BARREIRAS INVISÍVEIS REMOVIDAS ===
+          groupRef.current.position.set(intersectPoint.x, position[1], intersectPoint.z);
+        }
       }
-    }
-  };
+    };
 
   return (
     <group 

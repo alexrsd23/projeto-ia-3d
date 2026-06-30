@@ -389,19 +389,24 @@ class RouteAnalyticsSystem:
             "lethalZones": lethal_zones
         }
 
-# (O resto das classes no arquivo ai_navigation.py continua perfeitamente igual)
 class EnvironmentSensor:
     @staticmethod
-    def get_state(agent_pos, target_pos, shared_knowledge, last_action=-1):
+    def get_state(agent_pos, target_pos, shared_knowledge, last_action=-1, world_bounds=None):
         dx = round((target_pos[0] - agent_pos[0]) / 2)
         dz = round((target_pos[1] - agent_pos[1]) / 2)
         
         # ==============================================================
-        # FIX 1: Normalização PyTorch (A pílula de inteligência)
-        # Transforma coordenadas brutas (-24 a 24) em decimais (-1.0 a 1.0)
+        # FIX 1: Normalização PyTorch Dinâmica
+        # Extraímos o raio máximo para o Agente entender as proporções do mundo
         # ==============================================================
-        norm_dx = dx / 24.0
-        norm_dz = dz / 24.0
+        max_radius = 24.0
+        if world_bounds:
+            max_radius = max(abs(world_bounds['minX']), abs(world_bounds['maxX']), 
+                             abs(world_bounds['minZ']), abs(world_bounds['maxZ']))
+            if max_radius == 0: max_radius = 24.0 # Evita divisão por zero
+            
+        norm_dx = dx / max_radius
+        norm_dz = dz / max_radius
         norm_act = last_action / 7.0 if last_action != -1 else 0.0
         
         return np.array([norm_dx, norm_dz, norm_act])
@@ -454,7 +459,7 @@ class RealNeuralNetworkBrain:
         self.epsilon_decay = 0.998
         self.train_step = 0
         
-    def get_action(self, state):
+    def get_action(self, state, world_bounds=None):
         # 1. Exploração
         if random.random() < self.epsilon:
             return random.randint(0, 7) 
@@ -472,11 +477,17 @@ class RealNeuralNetworkBrain:
         self.last_q_values = [float(q) for q in q_values]
         
         # ==============================================================
-        # FIX: "DESNORMALIZAR" PARA O COMPASSO GEOMÉTRICO FUNCIONAR!
-        # Multiplicamos de volta por 24 e 7 para o código de lógica entender.
+        # FIX: "DESNORMALIZAR" DINAMICAMENTE PARA O COMPASSO GEOMÉTRICO
+        # O cérebro extrai o tamanho exato do mundo que leu na API
         # ==============================================================
-        dx_state = round(state[0] * 24.0)
-        dz_state = round(state[1] * 24.0)
+        max_radius = 24.0
+        if world_bounds:
+            max_radius = max(abs(world_bounds['minX']), abs(world_bounds['maxX']), 
+                             abs(world_bounds['minZ']), abs(world_bounds['maxZ']))
+            if max_radius == 0: max_radius = 24.0
+            
+        dx_state = round(state[0] * max_radius)
+        dz_state = round(state[1] * max_radius)
         last_action = round(state[2] * 7.0)
         
         ideal_action = -1
@@ -497,7 +508,6 @@ class RealNeuralNetworkBrain:
             
         # =================================================================
         # CORTA-LOOPS SUAVE (A sua ideia de não punir os cactos!)
-        # Em vez de proibir a volta para trás, retiramos 10 pontos de Q-Value
         # =================================================================
         opposites = {0: 1, 1: 0, 2: 3, 3: 2, 4: 7, 7: 4, 5: 6, 6: 5}
         if last_action in opposites:
@@ -559,6 +569,8 @@ class AgentController:
         self.shared_knowledge = SharedKnowledgeSystem()
         self.logger = EventLogSystem()
         self.analytics = RouteAnalyticsSystem(self.logger)
+        # O Controller da IA também precisa saber onde é o fim do mundo!
+        self.world_bounds = {"minX": -24, "maxX": 24, "minZ": -24, "maxZ": 24}
         
     def process_tick(self, agent_id, agent_pos, target_pos):
         self.shared_knowledge.tick() 
@@ -567,7 +579,10 @@ class AgentController:
         ep = self.analytics.active_episodes.get(agent_id)
         last_act = ep['raw_actions'][-1] if ep and len(ep['raw_actions']) > 0 else -1
         
-        state = EnvironmentSensor.get_state(agent_pos, target_pos, self.shared_knowledge, last_act)
+        # ==============================================================
+        # CORREÇÃO: Passa o limite do mundo para a Rede Neural Normalizar
+        # ==============================================================
+        state = EnvironmentSensor.get_state(agent_pos, target_pos, self.shared_knowledge, last_act, self.world_bounds)
         planned_action = self.analytics.get_planned_action(agent_id)
         
         # AS 8 DIREÇÕES (Movimento em Vizinhança de Moore)
@@ -583,11 +598,11 @@ class AgentController:
             
             if self.shared_knowledge.is_dangerous(next_x, next_z):
                 self.analytics.abort_exploit(agent_id)
-                action_idx = self.brain.get_action(state) 
+                action_idx = self.brain.get_action(state, self.world_bounds) 
             else:
                 action_idx = planned_action
         else:
-            action_idx = self.brain.get_action(state)
+            action_idx = self.brain.get_action(state, self.world_bounds)
         
         dx, dz = moves[action_idx]
         next_x, next_z = agent_pos[0] + dx, agent_pos[1] + dz

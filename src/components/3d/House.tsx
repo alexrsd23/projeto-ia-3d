@@ -39,10 +39,8 @@ export default function House({ id, position, isSelected, onClick, onMove, setIs
       finalX = Math.round(finalX / 2) * 2;
       finalZ = Math.round(finalZ / 2) * 2;
 
-      // Validação: Garante que o encaixe não jogue a casa para fora do mundo (-24 a 24)
-      finalX = Math.max(-24, Math.min(24, finalX));
-      finalZ = Math.max(-24, Math.min(24, finalZ));
-
+      // === AS BARREIRAS FORAM DESTRUÍDAS AQUI ===
+      
       // 1. Atualiza visualmente na mesma hora para dar o efeito de "pulo" pro lugar certo
       meshRef.current.position.set(finalX, position[1], finalZ);
 
@@ -57,11 +55,9 @@ export default function House({ id, position, isSelected, onClick, onMove, setIs
       const intersectPoint = new THREE.Vector3();
       const hit = e.ray.intersectPlane(dragPlane, intersectPoint);
       if (hit) {
-        // Movimentação livre durante o arrasto, mantendo o limite do mundo
-        const clampedX = Math.max(-24, Math.min(24, intersectPoint.x));
-        const clampedZ = Math.max(-24, Math.min(24, intersectPoint.z));
-        
-        meshRef.current.position.set(clampedX, position[1], clampedZ);
+        // === AS BARREIRAS FORAM DESTRUÍDAS AQUI ===
+        // Movimentação livre e infinita durante o arrasto!
+        meshRef.current.position.set(intersectPoint.x, position[1], intersectPoint.z);
       }
     }
   };

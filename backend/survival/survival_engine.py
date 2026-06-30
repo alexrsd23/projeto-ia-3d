@@ -25,28 +25,27 @@ def process_survival_tick(survival_brain, session):
     # Tipos de agentes inteligentes/sensitivos do sistema
     AGENT_TYPES = ['farmer', 'woodcutter', 'builder', 'blacksmith', 'wolf']
 
-    # 1. Busca global de agentes sensíveis (Agora verifica Propriedades!)
+    # 1. Busca global de agentes sensíveis (Livre da Explosão Cartesiana)
     query_agents = """
     MATCH (e:Entity)
     WHERE e.type IN $agent_types
-    // OPTIONAL MATCH verifica se ele é dono de um Plot. Se for, p.id existe.
+    OPTIONAL MATCH (e)-[:MARRIED_TO]-(spouse:Entity)
+    WITH e, spouse
     OPTIONAL MATCH (e)-[:OWNS]->(p:Plot)
+    WITH e, spouse, count(p) > 0 AS owns_plot
     RETURN 
-        e.id AS id,
-        e.type AS type,
-        e.posX AS x,
-        e.posZ AS z,
-        e.health AS hp,
-        e.hunger AS hunger,
-        e.name AS name,
-        e.inventoryJSON AS inventoryJSON,
-        e.memoryJSON AS memoryJSON,
-        e.state AS state,
-        coalesce(e.married, false) AS married,
-        coalesce(e.age, 0) AS age,
-        coalesce(e.sex, 'M') AS sex,
+        e.id AS id, e.type AS type, e.posX AS x, e.posZ AS z,
+        e.health AS hp, e.hunger AS hunger, e.name AS name,
+        e.inventoryJSON AS inventoryJSON, e.memoryJSON AS memoryJSON,
+        e.state AS state, coalesce(e.married, false) AS married,
+        coalesce(e.age, 0) AS age, coalesce(e.sex, 'M') AS sex,
         coalesce(e.toolHp, 100.0) AS toolHp,
-        (p.id IS NOT NULL) AS owns_plot
+        coalesce(e.profession, 'Explorador') AS profession,
+        coalesce(e.lieLevel, 0) AS lieLevel,
+        coalesce(e.trustLevel, 50) AS trustLevel,
+        coalesce(e.color, '#ffffff') AS color,
+        owns_plot,
+        spouse.id AS spouse_id
     """
 
     # 2. Busca de tudo que NÃO é agente sensível
@@ -62,9 +61,11 @@ def process_survival_tick(survival_brain, session):
         coalesce(e.age, 0) AS age
     """
 
-    # === ADICIONE ESTA QUERY QUE ESTAVA FALTANDO ===
+    # Traz APENAS terras que já foram aradas (farm) ou que têm crops (anomalias). 
+    # Ignora os 20.000 blocos vazios de "grass" para poupar RAM!
     query_tiles = """
     MATCH (t:Tile) 
+    WHERE t.type = 'farm' OR t.cropsJSON <> '[]'
     RETURN 
         t.id AS id, 
         t.gridX AS x, 
@@ -88,12 +89,52 @@ def process_survival_tick(survival_brain, session):
     
     tiles_map = {t['id']: t for t in world_tiles}
     
+    # === CACHE DE PERFORMANCE (Gargalo $O(N^3)$ resolvido) ===
+    # A malha de restrição só é recalculada se for o primeiro tick ou se o número de terrenos mudou.
+    plots_count = len(world_plots)
+    if not hasattr(survival_brain, 'last_plots_count') or survival_brain.last_plots_count != plots_count:
+        global_restricted_coords = set()
+        for p in world_plots:
+            p_start_x, p_start_z = p['startX'], p['startZ']
+            p_max_x = p_start_x + (p['width'] - 1) * 2
+            p_max_z = p_start_z + (p['height'] - 1) * 2
+            
+            # Mapeia o buffer de 1 bloco (2 unidades) ao redor da fazenda
+            for x in range(p_start_x - 2, p_max_x + 3, 2):
+                for z in range(p_start_z - 2, p_max_z + 3, 2):
+                    global_restricted_coords.add((x, z))
+        
+        survival_brain.global_restricted_coords = global_restricted_coords
+        survival_brain.last_plots_count = plots_count
+    else:
+        # Se nada mudou, apenas recuperamos o que já foi calculado
+        global_restricted_coords = survival_brain.global_restricted_coords
+
+    # === FUNÇÃO INTERNA DE VALIDAÇÃO ESPACIAL UNIVERSAL ===
+    def is_spot_valid(rx, rz):
+        # 1. Trava Agrícola Absoluta: Não pode ser terra arada ou com cultivo
+        tile_id = f"tile-{rx}-{rz}"
+        if tiles_map.get(tile_id, {}).get('type') == 'farm':
+            return False
+            
+        # 2. Trava de Propriedade (USANDO O CACHE OTIMIZADO)
+        # Em vez de fazer um loop 'for p in world_plots' (lento), 
+        # apenas perguntamos ao 'set' se a coordenada está lá (instantâneo).
+        if (rx, rz) in global_restricted_coords:
+            return False
+                
+        # 3. Trava de Colisão Física (Sólidos não se sobrepõem)
+        for e in world_entities:
+            if e.get('x') == rx and e.get('z') == rz:
+                return False
+                
+        return True
+
     # =====================================================================
-    # NOVO: Biologia do Mundo e Depreciação (Entropia Estrutural e Loot)
+    # NOVO: Biologia do Mundo e Depreciação (Entropia Estrutural e Botânica)
     # =====================================================================
     for entity in world_entities:
         if entity['type'] == 'fence':
-            # 0.5% de chance da cerca quebrar a cada tick
             if random.random() < 0.0002:
                 updates_agents.append({
                     "id": entity['id'], "type": "damaged_fence", 
@@ -101,8 +142,7 @@ def process_survival_tick(survival_brain, session):
                     "hp": 0, "hunger": 0, "inv": "{}", "mem": "{}", "state": "IDLE"
                 })
                 
-        # === CORREÇÃO ESTOCÁSTICA: DECOMPOSIÇÃO DE ESPÓLIOS ===
-        # Um saco de loot abandonado decai lentamente (equivale a ~10 minutos reais)
+        # Um saco de loot abandonado decai lentamente
         elif entity['type'] == 'loot':
             if random.random() < 0.0005: 
                 dead_agents.append(entity['id'])
@@ -112,78 +152,104 @@ def process_survival_tick(survival_brain, session):
                     "timestamp": datetime.now().strftime("%H:%M:%S")
                 })
                 
+        # O Ciclo de Vida dos Tocos: Apodrecem e somem caso não sejam replantados
+        elif entity['type'] == 'stump':
+            if random.random() < 0.001: # Aumentado de 0.0005 para 0.01 (Média de 100 ticks)
+                dead_agents.append(entity['id'])
+                events.append({
+                    "id": str(uuid.uuid4()), "level": "INFO", 
+                    "message": f"🍂 ECOLOGIA: Um toco de árvore apodreceu, libertando espaço e nutrientes em X:{entity['x']}, Z:{entity['z']}.", 
+                    "timestamp": datetime.now().strftime("%H:%M:%S")
+                })
+                
     # =====================================================================
-    # NOVO: CICLO GEOLÓGICO (Geração Espontânea e Distribuída de Rochas)
+    # CICLO DA NATUREZA (Geração Espontânea de Pedras e Árvores)
     # =====================================================================
-    # === CORREÇÃO ESTOCÁSTICA: TETO DE DENSIDADE MINERAL ===
-    # O mapa 48x48 tem ~625 nós. Limitamos o volume global de pedras ativas a 60 unidades.
-    current_stone_count = sum(1 for e in world_entities if e.get('type') == 'stone')
+    bounds = getattr(survival_brain, 'world_bounds', {"minX": -24, "maxX": 24, "minZ": -24, "maxZ": 24})
     
-    if current_stone_count < 60 and random.random() < 0.10:
-        rx = random.choice(range(-24, 25, 2))
-        rz = random.choice(range(-24, 25, 2))
-        
-        is_valid_spot = True
-        
-        # 1. Restrição de Propriedade e Buffer (1 Bloco de Isolamento = 2 Unidades)
-        for p in world_plots:
-            # Amplia a caixa delimitadora (Bounding Box) do terreno
-            px_min = p['startX'] - 2
-            pz_min = p['startZ'] - 2
-            px_max = p['startX'] + (p['width'] - 1) * 2 + 2
-            pz_max = p['startZ'] + (p['height'] - 1) * 2 + 2
-            
-            if px_min <= rx <= px_max and pz_min <= rz <= pz_max:
-                is_valid_spot = False
-                break
+    # Cálculos Dinâmicos de Teto Ecológico baseados na área do mundo
+    total_area_tiles = (((bounds['maxX'] - bounds['minX']) // 2) + 1) * (((bounds['maxZ'] - bounds['minZ']) // 2) + 1)
+    
+    dynamic_stone_cap = max(60, int(total_area_tiles * 0.10)) # Aumentado de 5% para 10%
+    dynamic_tree_cap = max(80, int(total_area_tiles * 0.10))  # Aumentado de 8% para 10%
+
+    current_stone_count = sum(1 for e in world_entities if e.get('type') == 'stone')
+    current_tree_count = sum(1 for e in world_entities if e.get('type') in ['tree', 'stump'])
+    
+    current_time_geo = datetime.now().strftime("%H:%M:%S")
+
+    # Função Helper para preservar a lógica rígida de proteção (Com distanciamento real)
+    def check_nature_spot_valid(rx, rz):
+        # 1. Restrição de Propriedade e Buffer (Mínimo de 1 Bloco de Isolamento = 2 Unidades Radiais)
+        # Em vez de calcular os limites a cada verificação, aproveitamos o cache O(1) já computado!
+        # Se a coordenada exata ou os 8 blocos adjacentes (raio de 1 bloco) tocarem na zona restrita global, aborta.
+        offsets = [(0,0), (-2,0), (2,0), (0,-2), (0,2), (-2,-2), (2,2), (-2,2), (2,-2)]
+        for dx, dz in offsets:
+            if (rx + dx, rz + dz) in global_restricted_coords:
+                return False
                 
-        if is_valid_spot:
-            # 2 e 3. Restrição de Solo Ocupado e Controle de Densidade
-            for e in world_entities:
-                ex, ez = e.get('x'), e.get('z')
-                if ex is None or ez is None: continue
+        # 2. Restrição de Solo Ocupado (Regra Absoluta Anti-Sobreposição)
+        # Verifica a lista antiga do Neo4j E os novos itens gerados neste exato milissegundo!
+        for e in world_entities:
+            # === CORREÇÃO CRÍTICA: Distanciamento Entre Entidades ===
+            # Não verifica apenas igualdade exata, verifica se a distância é inferior a 2 unidades (1 bloco)
+            # Isto impede que uma árvore nasça colada numa pedra, ou uma pedra em cima de outra.
+            if e.get('x') is not None and e.get('z') is not None:
+                if abs(e['x'] - rx) < 2 and abs(e['z'] - rz) < 2:
+                    return False
                 
-                # Regra Absoluta: Nenhum objeto sobrepondo a nova pedra
-                if ex == rx and ez == rz:
-                    is_valid_spot = False
-                    break
-                    
-                # Regra de Densidade: Proíbe pedras adjacentes (raio restrito de 3.0)
-                if e.get('type') == 'stone':
-                    if math.hypot(ex - rx, ez - rz) <= 3.0:
-                        is_valid_spot = False
-                        break
-                        
-        if is_valid_spot:
-            current_time_geo = datetime.now().strftime("%H:%M:%S")
-            new_stone = {
-                "id": str(uuid.uuid4()), "type": "stone", "posX": rx, "posY": -0.5, "posZ": rz,
-                "health": 100.0, "hunger": 0.0, "name": "Pedra", "inventoryJSON": "{}", "memoryJSON": "{}", "state": "IDLE"
+        return True
+
+    # --- 1. Geração de Pedras ---
+    # Aumentado de 1% para 15% de chance de spawn por tick
+    if current_stone_count < dynamic_stone_cap and random.random() < 0.35:
+        rx = random.choice(range(int(bounds['minX']), int(bounds['maxX']) + 1, 2))
+        rz = random.choice(range(int(bounds['minZ']), int(bounds['maxZ']) + 1, 2))
+        
+        if check_nature_spot_valid(rx, rz):
+            if not any(e.get('type') == 'stone' and math.hypot(e.get('x',0) - rx, e.get('z',0) - rz) <= 3.0 for e in world_entities):
+                new_stone = {
+                    "id": str(uuid.uuid4()), "type": "stone", "posX": rx, "posY": -0.5, "posZ": rz,
+                    "health": 100.0, "hunger": 0.0, "name": "Pedra", "inventoryJSON": "{}", "memoryJSON": "{}", "state": "IDLE"
+                }
+                new_entities_to_create.append(new_stone)
+                world_entities.append({"id": new_stone['id'], "type": "stone", "x": rx, "z": rz, "hp": 100.0})
+                events.append({"id": str(uuid.uuid4()), "level": "INFO", "message": f"⛰️ GEOLOGIA: Um novo afloramento rochoso irrompeu do solo em X:{rx}, Z:{rz}.", "timestamp": current_time_geo})
+
+    # --- 2. Geração de Florestas ---
+    # Aumentado de 1% para 15% de chance de spawn por tick
+    if current_tree_count < dynamic_tree_cap and random.random() < 0.15:
+        rx = random.choice(range(int(bounds['minX']), int(bounds['maxX']) + 1, 2))
+        rz = random.choice(range(int(bounds['minZ']), int(bounds['maxZ']) + 1, 2))
+        
+        if check_nature_spot_valid(rx, rz):
+            new_tree = {
+                "id": str(uuid.uuid4()), "type": "tree", "posX": rx, "posY": -0.5, "posZ": rz,
+                "health": 100.0, "hunger": 0.0, "name": "Árvore Selvagem", "inventoryJSON": "{}", "memoryJSON": "{}", "state": "IDLE"
             }
-            new_entities_to_create.append(new_stone)
-            # Injeta imediatamente no array volátil para que a leitura de colisões deste mesmo tick já a considere
-            world_entities.append({"id": new_stone['id'], "type": "stone", "x": rx, "z": rz, "hp": 100.0})
-            events.append({"id": str(uuid.uuid4()), "level": "INFO", "message": f"⛰️ GEOLOGIA: Um novo afloramento rochoso irrompeu do solo em X:{rx}, Z:{rz}.", "timestamp": current_time_geo})
+            new_entities_to_create.append(new_tree)
+            world_entities.append({"id": new_tree['id'], "type": "tree", "x": rx, "z": rz, "hp": 100.0})
+
     # =====================================================================
+    # === CORREÇÃO CRÍTICA: CARREGAMENTO DE MEMÓRIA EM MASSA (ANTI-AMNÉSIA) ===
+    # =====================================================================
+    # Lê os cérebros do Neo4j ANTES de a simulação rolar, para que os agentes 
+    # não sobreponham as memórias sociais uns dos outros no mesmo segundo!
+    for agent in agents:
+        if agent.get('memoryJSON') and agent['memoryJSON'] != "{}":
+            survival_brain.memory_sys.load_from_db(agent['id'], agent['memoryJSON'])
 
     for agent in agents:
         inv = survival_brain.inventory_sys.parse(agent.get('inventoryJSON', "{}"))
         tool_hp = agent.get('toolHp', 100.0)
         
         # === NOVA MECÂNICA: ENTROPIA BIOLÓGICA (APODRECIMENTO) ===
-        # A cada tick, há 0.1% de chance de UMA batata apodrecer no inventário (se existir).
-        # Isso força os fazendeiros a venderem o excedente rápido ou plantarem,
-        # impedindo a inflação estagnada de "bilionários da batata".
         if inv.get('potatoes', 0) > 0 and random.random() < 0.001:
             inv['potatoes'] -= 1
             agent_name_for_rot = agent.get('name', f"Agente {agent['id'][:4]}")
             current_time_for_rot = datetime.now().strftime("%H:%M:%S")
             events.append({"id": str(uuid.uuid4()), "level": "WARNING", "message": f"🪰 ENTROPIA: Uma batata apodreceu na mochila de {agent_name_for_rot}!", "timestamp": current_time_for_rot})
             
-        # === CORREÇÃO 1: Restaura a Memória real do Neo4j para a RAM ===
-        if agent.get('memoryJSON') and agent['memoryJSON'] != "{}":
-            survival_brain.memory_sys.load_from_db(agent['id'], agent['memoryJSON'])
-        
         # 2. O Cérebro Pensa e Atualiza a RAM
         action, new_x, new_z, target_id, brain_log = survival_brain.decide_next_move(
             agent, world_entities, world_tiles, world_plots, current_tick, agents
@@ -227,13 +293,14 @@ def process_survival_tick(survival_brain, session):
             # =================================================================
             # === NOVO: SUCESSÃO PATRIMONIAL E AVALIAÇÃO DE HERDEIROS ===
             # =================================================================
-            # A query agora verifica APENAS familiares vivos (health > 0 e type não é loot).
+            # A query agora verifica APENAS familiares vivos que SEJAM FAZENDEIROS.
+            # Se a esposa for Lenhadora, ela NÃO herda a terra. A terra vai para o Estado.
             query_heirs = """
             MATCH (dead:Entity {id: $id})-[:OWNS]->(p:Plot)
             OPTIONAL MATCH (dead)-[:MARRIED_TO]-(spouse:Entity)
-              WHERE coalesce(spouse.health, 0) > 0 AND spouse.type <> 'loot'
+              WHERE coalesce(spouse.health, 0) > 0 AND spouse.type = 'farmer'
             OPTIONAL MATCH (dead)-[:PARENT_OF]->(child:Entity)
-              WHERE coalesce(child.health, 0) > 0 AND child.type <> 'loot'
+              WHERE coalesce(child.health, 0) > 0 AND child.type = 'farmer'
             WITH dead, collect(DISTINCT p.id) AS owned_plots, 
                  collect(DISTINCT spouse.id) AS spouses, 
                  collect(DISTINCT child.id) AS children
@@ -724,15 +791,13 @@ def process_survival_tick(survival_brain, session):
                 pass 
             else:
                 try:
-                    # 1. VALIDAÇÃO DE CONSANGUINIDADE (TABU GENÉTICO)
+                    # 1. VALIDAÇÃO DE CONSANGUINIDADE (TABU GENÉTICO FLEXIBILIZADO)
                     query_incest = """
                     MATCH (a:Entity {id: $idA}), (b:Entity {id: $idB})
-                    OPTIONAL MATCH p1=(a)-[:PARENT_OF*1..]->(b)
-                    OPTIONAL MATCH p2=(b)-[:PARENT_OF*1..]->(a)
-                    OPTIONAL MATCH p3=(a)<-[:PARENT_OF]-()-[:PARENT_OF]->(b)
-                    OPTIONAL MATCH p4=(a)<-[:PARENT_OF]-()-[:PARENT_OF]-()-[:PARENT_OF]->(b)
-                    OPTIONAL MATCH p5=(b)<-[:PARENT_OF]-()-[:PARENT_OF]-()-[:PARENT_OF]->(a)
-                    RETURN (p1 IS NOT NULL OR p2 IS NOT NULL OR p3 IS NOT NULL OR p4 IS NOT NULL OR p5 IS NOT NULL) AS is_incest
+                    OPTIONAL MATCH p1=(a)-[:PARENT_OF*1..]->(b) // A é ancestral direto de B
+                    OPTIONAL MATCH p2=(b)-[:PARENT_OF*1..]->(a) // B é ancestral direto de A
+                    OPTIONAL MATCH p3=(a)<-[:PARENT_OF]-()-[:PARENT_OF]->(b) // São Irmãos (Têm o mesmo pai/mãe)
+                    RETURN (p1 IS NOT NULL OR p2 IS NOT NULL OR p3 IS NOT NULL) AS is_incest
                     LIMIT 1
                     """
                     incest_check = session.run(query_incest, idA=agent_a, idB=agent_b).single()
@@ -747,9 +812,10 @@ def process_survival_tick(survival_brain, session):
                         survival_brain.memory_sys.agent_memories[agent_b]['rejections'].append(agent_a)
                     else:
                         # 2. SE A GENÉTICA PERMITIR, EXECUTA O CASAMENTO:
+                        # === CORREÇÃO CRÍTICA 1: O 'a.type = b.type' foi removido da Query Cypher ===
                         query_marry = """
                         MATCH (a:Entity {id: $idA}), (b:Entity {id: $idB})
-                        WHERE coalesce(a.married, false) = false AND coalesce(b.married, false) = false AND a.type = b.type
+                        WHERE coalesce(a.married, false) = false AND coalesce(b.married, false) = false
                         MERGE (a)-[r:MARRIED_TO]-(b)
                         SET a.married = true, b.married = true
                         RETURN a.name AS nameA, b.name AS nameB
@@ -763,6 +829,13 @@ def process_survival_tick(survival_brain, session):
                             for a in agents:
                                 if a['id'] == agent_a or a['id'] == agent_b:
                                     a['married'] = True
+                        else:
+                            # === CORREÇÃO CRÍTICA 2: Feedback de Falha Cognitiva ===
+                            # Se o banco de dados recusar o casamento (alvo já não é solteiro ou sumiu), 
+                            # o agente regista a rejeição e avança a sua vida!
+                            events.append({"id": str(uuid.uuid4()), "level": "WARNING", "message": f"💔 Desencontro: O pedido romântico de {agent_name} falhou.", "timestamp": current_time})
+                            survival_brain.memory_sys._ensure_agent(agent_a)
+                            survival_brain.memory_sys.agent_memories[agent_a]['rejections'].append(agent_b)
                                     
                 except Exception as e:
                     events.append({"id": str(uuid.uuid4()), "level": "WARNING", "message": f"💔 Erro no banco durante o casamento: {str(e)}", "timestamp": current_time})
@@ -778,9 +851,11 @@ def process_survival_tick(survival_brain, session):
                     events.append({"id": str(uuid.uuid4()), "level": "INFO", "message": f"⏳ {agent_name} cedeu a iniciativa romântica ao parceiro neste ciclo.", "timestamp": current_time})
                 else:
                     p_inv = survival_brain.inventory_sys.parse(partner.get('inventoryJSON', "{}"))
-                    a_type = agent['type']
                     
-                    # === NOVO: CÁLCULO DE CUSTO EXPONENCIAL ASSIMÉTRICO ===
+                    # === NOVO: AUDITORIA FINANCEIRA DO CASAL ===
+                    has_funds_a = inv.get('plobs', 0.0) >= 250.0
+                    has_funds_b = p_inv.get('plobs', 0.0) >= 250.0
+                    
                     mem_a = survival_brain.memory_sys.agent_memories.get(agent_a_id, {})
                     mem_b = survival_brain.memory_sys.agent_memories.get(agent_b_id, {})
                     
@@ -790,28 +865,38 @@ def process_survival_tick(survival_brain, session):
                     mult_a = 2 ** kids_a
                     mult_b = 2 ** kids_b
                     
-                    cost_a, cost_b = 0, 0
-                    item_type = ""
+                    resource_map = {
+                        'farmer': ('potatoes', 2),
+                        'woodcutter': ('logs', 5),
+                        'builder': ('stones', 4),
+                        'blacksmith': ('metal_parts', 2),
+                        'wolf': ('none', 0),
+                        'character': ('none', 0)
+                    }
                     
-                    if a_type == 'farmer':
-                        cost_a, cost_b, item_type = 2 * mult_a, 2 * mult_b, 'potatoes'
-                    elif a_type == 'woodcutter':
-                        cost_a, cost_b, item_type = 5 * mult_a, 5 * mult_b, 'logs'
-                    elif a_type == 'builder':
-                        cost_a, cost_b, item_type = 4 * mult_a, 4 * mult_b, 'stones'
-                    elif a_type == 'blacksmith':
-                        cost_a, cost_b, item_type = 2 * mult_a, 2 * mult_b, 'metal_parts'
-                        
-                    both_can_afford = inv.get(item_type, 0) >= cost_a and p_inv.get(item_type, 0) >= cost_b
+                    item_a, base_cost_a = resource_map.get(agent['type'], ('potatoes', 2))
+                    item_b, base_cost_b = resource_map.get(partner['type'], ('potatoes', 2))
                     
-                    if both_can_afford:
-                        # Deduz os materiais respeitando o histórico reprodutivo de cada um
-                        inv[item_type] -= cost_a
-                        p_inv[item_type] -= cost_b
+                    cost_a = base_cost_a * mult_a
+                    cost_b = base_cost_b * mult_b
+                    
+                    both_can_afford_materials = inv.get(item_a, 0) >= cost_a and p_inv.get(item_b, 0) >= cost_b
+                    
+                    # A injeção da vida só acontece se ambas as condições sistêmicas forem atendidas
+                    if both_can_afford_materials and (has_funds_a and has_funds_b):
                         
-                        # Incrementa a certidão biológica de cada parceiro na RAM
+                        if item_a != 'none': inv[item_a] -= cost_a
+                        if item_b != 'none': p_inv[item_b] -= cost_b
+                        
                         mem_a['children_count'] = kids_a + 1
                         mem_b['children_count'] = kids_b + 1
+                        
+                        # === CORREÇÃO CRÍTICA: MARCO TEMPORAL BIOLÓGICO ===
+                        # Imprime o selo temporal para evitar a síndrome da metralhadora reprodutiva
+                        survival_brain.memory_sys._ensure_agent(agent_a_id)
+                        survival_brain.memory_sys._ensure_agent(agent_b_id)
+                        survival_brain.memory_sys.agent_memories[agent_a_id]['last_reproduction_tick'] = current_tick
+                        survival_brain.memory_sys.agent_memories[agent_b_id]['last_reproduction_tick'] = current_tick
                         
                         # O CUSTO BIOLÓGICO: Ter um filho consome 25% da barra de fome de ambos!
                         new_hunger = max(0.0, new_hunger - 25.0)
@@ -823,27 +908,38 @@ def process_survival_tick(survival_brain, session):
                                 up['hunger'] = partner['hunger']
                                 up['inv'] = partner['inventoryJSON']
                                 
-                        child_dna = biology.mix_dna(agent, partner)
+                        # === O CENSO GENÉTICO PARA EQUILÍBRIO SOCIAL ===
+                        child_dna = biology.mix_dna(agent, partner, agents)
                         child_id = str(uuid.uuid4())
                         child_name = f"{child_dna['profession']} {child_id[:2].upper()}"
                         
-                        # === NOVO: TRANSFERÊNCIA DE RIQUEZA INTERGERACIONAL ===
-                        # Cada pai doa 10% da sua conta bancária para o recém-nascido
-                        father_donation = round(inv.get('plobs', 0.0) * 0.10, 2)
-                        mother_donation = round(p_inv.get('plobs', 0.0) * 0.10, 2)
+                       # TRANSFERÊNCIA DE RIQUEZA INTERGERACIONAL (O Fundo Fiduciário)
+                        # TRANSFERÊNCIA DE RIQUEZA INTERGERACIONAL (O Fundo Fiduciário)
+                        # Os pais doam 25% do seu capital para garantir a sobrevivência 
+                        # da criança num cenário de inflação de mercado.
+                        father_donation = round(inv.get('plobs', 0.0) * 0.25, 2)
+                        mother_donation = round(p_inv.get('plobs', 0.0) * 0.25, 2)
                         
                         inv['plobs'] = round(inv.get('plobs', 0.0) - father_donation, 2)
                         p_inv['plobs'] = round(p_inv.get('plobs', 0.0) - mother_donation, 2)
                         
-                        # Inicia a criança com os fundos doados
-                        child_inv_json = json.dumps({"plobs": father_donation + mother_donation})
+                        # === A REVOLUÇÃO DO CAPITAL SEMENTE E FUNDO HOSPITALAR ===
+                        # A taxa cobrada dos pais (cost_a + cost_b) NÃO é destruída! 
+                        # Ela junta-se à doação e vira o fundo financeiro inicial da criança,
+                        # garantindo que ela sobreviva a qualquer pico de inflação alimentar inicial.
+                        child_starting_capital = cost_a + cost_b + father_donation + mother_donation
+                        child_inv = {"plobs": child_starting_capital}
                         
-                        # === CORREÇÃO DE INTEGRIDADE GENEALÓGICA ===
-                        # Em vez de tentar gravar no banco a meio do tick, colocamos a criança 
-                        # na fila global. Injetamos o 'parent_a_id' e 'parent_b_id' para o Neo4j ler no fim.
+                        # Se a biologia ditou que a criança será Fazendeira, ela recebe 1 batata semente.
+                        if child_dna['type'] == 'farmer':
+                            child_inv['potatoes'] = 1
+                            
+                        child_inv_json = json.dumps(child_inv)
+                        
+                        # INTEGRIDADE GENEALÓGICA E INJEÇÃO DE ENTIDADE
                         new_child = {
                             "id": child_id, 
-                            "type": agent['type'], 
+                            "type": child_dna['type'], 
                             "posX": new_x, "posY": 0.5, "posZ": new_z,
                             "health": 100.0, "hunger": 100.0, "name": child_name,
                             "color": child_dna['color'], "sex": child_dna['sex'], 
@@ -851,23 +947,27 @@ def process_survival_tick(survival_brain, session):
                             "trustLevel": child_dna['trustLevel'], "lieLevel": child_dna['lieLevel'],
                             "married": False, "age": 0,
                             "inventoryJSON": child_inv_json, "memoryJSON": "{}", "state": "IDLE",
-                            "parent_a_id": agent_a_id, # <--- O VÍNCULO SANGUÍNEO GRAVADO AQUI
-                            "parent_b_id": agent_b_id  # <--- O VÍNCULO SANGUÍNEO GRAVADO AQUI
+                            "parent_a_id": agent_a_id,
+                            "parent_b_id": agent_b_id 
                         }
                         
                         new_entities_to_create.append(new_child)
-                        
-                        # Injeção imediata no buffer visual para evitar colisões
                         world_entities.append({
-                            "id": child_id, "type": agent['type'], 
+                            "id": child_id, "type": child_dna['type'], 
                             "x": new_x, "z": new_z, "hp": 100.0, "age": 0
                         })
                         
                         events.append({"id": str(uuid.uuid4()), "level": "SUCCESS", "message": f"👶 MILAGRE DA VIDA: {agent_name} e {partner.get('name')} tiveram um filho! Bem-vindo(a) {child_name}!", "timestamp": current_time})
                     else:
-                        events.append({"id": str(uuid.uuid4()), "level": "WARNING", "message": f"🚫 Tentativa de gravidez falhou: {agent_name} ou parceiro não têm os recursos materiais exigidos!", "timestamp": current_time})
-                        # === CORREÇÃO DE ESTADO CRÍTICO (ANTI-LOOP DE GRAVIDEZ) ===
-                        # Agente regista o cônjuge falido na lista de boicotes e ignora-o durante 50 ticks
+                        # === FEEDBACK DIAGNÓSTICO ESTRUTURADO ===
+                        if not (has_funds_a and has_funds_b):
+                            fail_msg = f"🚫 Planejamento Adiadiado: {agent_name} ou o parceiro não possuem os 250 Plobs mínimos para garantir o futuro da criança!"
+                        else:
+                            fail_msg = f"🚫 Tentativa de gravidez falhou: {agent_name} ou parceiro não têm os recursos materiais exigidos!"
+                            
+                        events.append({"id": str(uuid.uuid4()), "level": "WARNING", "message": fail_msg, "timestamp": current_time})
+                        
+                        # Trava temporal para evitar o assédio em loop sobre o mesmo alvo
                         survival_brain.memory_sys._ensure_agent(agent_a_id)
                         survival_brain.memory_sys.agent_memories[agent_a_id].setdefault('boycotts', {})[agent_b_id] = current_tick
 
@@ -985,8 +1085,12 @@ def process_survival_tick(survival_brain, session):
             target_entity = next((e for e in world_entities if e['id'] == target_id), None)
             if target_entity:
                 tool_hp = max(0.0, tool_hp - 2.0)
-                # Chama a física que você criou no novo arquivo!
-                stump_update, dropped_logs, evt = ForestrySystem.process_chopping(target_entity, current_time, agent_name)
+                
+                # === CORREÇÃO DINÂMICA: Passa os limites do mundo para a física da floresta ===
+                bounds = getattr(survival_brain, 'world_bounds', None)
+                stump_update, dropped_logs, evt = ForestrySystem.process_chopping(
+                    target_entity, current_time, agent_name, bounds
+                )
                 
                 events.append(evt)
                 updates_agents.append(stump_update)          # Transforma em toco
@@ -1011,8 +1115,16 @@ def process_survival_tick(survival_brain, session):
         elif action == "COLLECT_STONE":
             target_entity = next((e for e in world_entities if e['id'] == target_id), None)
             if target_entity and survival_brain.inventory_sys.can_collect_stone(inv):
-                inv['stones'] = inv.get('stones', 0) + 1
-                events.append({"id": str(uuid.uuid4()), "level": "INFO", "message": f"🪨 {agent_name} recolheu 1 Pedra.", "timestamp": current_time})
+                # === CORREÇÃO DE RENDIMENTO MACROECONÓMICO ===
+                # Em vez de dar 1 pedra, um afloramento rochoso rende de 3 a 5 pedras pesadas.
+                # Isto compensa a viagem intercontinental num mapa gigante!
+                yield_amount = random.randint(3, 5)
+                # Garante que não ultrapassa o limite da mochila (ex: 16 pedras)
+                space_left = survival_brain.inventory_sys.MAX_STONES - inv.get('stones', 0)
+                actual_yield = min(yield_amount, space_left)
+                
+                inv['stones'] = inv.get('stones', 0) + actual_yield
+                events.append({"id": str(uuid.uuid4()), "level": "INFO", "message": f"🪨 {agent_name} minerou arduamente e extraiu {actual_yield} Pedras da rocha.", "timestamp": current_time})
                 dead_agents.append(target_id)
                 world_entities = [e for e in world_entities if e['id'] != target_id]
 
@@ -1074,7 +1186,7 @@ def process_survival_tick(survival_brain, session):
             target_entity = next((e for e in world_entities if e['id'] == target_id), None)
             # Encontra o cliente (o fazendeiro mais próximo da cerca)
             customer = min([a for a in agents if a['type'] == 'farmer'], 
-                           key=lambda f: math.hypot(f['posX']-target_entity['x'], f['posZ']-target_entity['z']), 
+                           key=lambda f: math.hypot(f['x']-target_entity['x'], f['z']-target_entity['z']), 
                            default=None)
             
             if target_entity and inv.get('fences', 0) > 0 and customer:
@@ -1171,17 +1283,26 @@ def process_survival_tick(survival_brain, session):
                         survival_brain.memory_sys._ensure_agent(agent['id'])
                         survival_brain.memory_sys.agent_memories[agent['id']].setdefault('boycotts', {})[target_id] = current_tick
 
-       # === CORREÇÃO DEFINITIVA: FOTOGRAFIA PÓS-AÇÃO ===
+       # === CORREÇÃO DEFINITIVA: FOTOGRAFIA PÓS-AÇÃO (COMPRIMIDA) ===
         raw_mem_final = survival_brain.memory_sys.agent_memories.get(agent['id'], {})
+        
+        # Função auxiliar para manter os dicionários magros (Max 30 chaves por categoria)
+        def prune_dict(d, max_keys=30):
+            if len(d) > max_keys:
+                # Mantém os últimos 'max_keys' elementos baseados na ordem de inserção (assumindo Python 3.7+)
+                return dict(list(d.items())[-max_keys:])
+            return d
+
         safe_memory_final = {
-            "food": {f"{k[0]},{k[1]}": v for k, v in raw_mem_final.get('food', {}).items()},
-            "farms": {f"{k[0]},{k[1]}": v for k, v in raw_mem_final.get('farms', {}).items()},
-            "hazards": {f"{k[0]},{k[1]}": v for k, v in raw_mem_final.get('hazards', {}).items()},
-            "rejections": raw_mem_final.get('rejections', []),
+            "food": prune_dict({f"{k[0]},{k[1]}": v for k, v in raw_mem_final.get('food', {}).items()}),
+            "farms": prune_dict({f"{k[0]},{k[1]}": v for k, v in raw_mem_final.get('farms', {}).items()}),
+            "hazards": prune_dict({f"{k[0]},{k[1]}": v for k, v in raw_mem_final.get('hazards', {}).items()}),
+            # As filas sociais tendem a acumular muito lixo. Limitado a 50 rejeições.
+            "rejections": raw_mem_final.get('rejections', [])[-50:], 
             "active_contract": raw_mem_final.get('active_contract'),
-            "ignored_loots": raw_mem_final.get('ignored_loots', {}),
-            "boycotts": raw_mem_final.get('boycotts', {}),
-            "children_count": raw_mem_final.get('children_count', 0)  # <--- CORREÇÃO: Serialização do gene demográfico
+            "ignored_loots": prune_dict(raw_mem_final.get('ignored_loots', {})),
+            "boycotts": prune_dict(raw_mem_final.get('boycotts', {})),
+            "children_count": raw_mem_final.get('children_count', 0)
         }
 
         # Adiciona a memória e estado ao pacote de atualização (PARA OS VIVOS)
@@ -1221,6 +1342,116 @@ def process_survival_tick(survival_brain, session):
                 updates_tiles.append(tile)
 
     # 4. Gravações no Neo4j
+    # =====================================================================
+    # NOVO: O GATILHO DE EXPANSÃO TERRITORIAL (TERRAFORMAÇÃO)
+    # =====================================================================
+    # A auditoria de expansão ocorre a cada 500 ticks para poupar CPU
+    if current_tick % 500 == 0:
+        # Lê os limites atuais da mente do survival_brain
+        bounds = getattr(survival_brain, 'world_bounds', {"minX": -24, "maxX": 24, "minZ": -24, "maxZ": 24})
+        min_x, max_x = int(bounds['minX']), int(bounds['maxX'])
+        min_z, max_z = int(bounds['minZ']), int(bounds['maxZ'])
+
+        # 1. Calcula a área total atual do mapa (em número de "tiles")
+        # Como a grelha avança de 2 em 2, dividimos por 2
+        total_width_tiles = ((max_x - min_x) // 2) + 1
+        total_height_tiles = ((max_z - min_z) // 2) + 1
+        total_map_tiles = total_width_tiles * total_height_tiles
+
+        # 2. Calcula a área total ocupada por latifúndios (Plots)
+        occupied_tiles = 0
+        for p in world_plots:
+            # Largura/Altura em blocos do jogo já estão em "número de nós" (width/height)
+            occupied_tiles += (p['width'] * p['height'])
+
+        # 3. Calcula a percentagem de ocupação
+        # Adicionamos uma pequena margem (e.g., 5%) para representar pedras e árvores.
+        occupancy_rate = (occupied_tiles / total_map_tiles) if total_map_tiles > 0 else 0
+
+        # O LIMIAR CRÍTICO: Se mais de 70% das terras estiverem loteadas, O MUNDO CRESCE!
+        if occupancy_rate >= 0.70:
+            events.append({
+                "id": str(uuid.uuid4()), "level": "WARNING", 
+                "message": f"🌍 EXPANSÃO: A densidade populacional atingiu {(occupancy_rate*100):.1f}%. O universo está a expandir-se para gerar novas terras aráveis!", 
+                "timestamp": datetime.now().strftime("%H:%M:%S")
+            })
+
+            # Define o tamanho da expansão (Quantos blocos cresce para cada lado)
+            expansion_step = 10 # Expande 10 blocos (5 unidades da grade) para cada cardeal
+            
+            new_min_x, new_max_x = min_x - expansion_step, max_x + expansion_step
+            new_min_z, new_max_z = min_z - expansion_step, max_z + expansion_step
+
+            # Gera as querys para criar a nova "casca" de grama em redor do mapa antigo
+            new_tiles_to_create = []
+            
+            # Anel Norte
+            for x in range(new_min_x, new_max_x + 1, 2):
+                for z in range(new_min_z, min_z, 2): # Da nova borda superior até à antiga borda superior
+                    new_tiles_to_create.append({"id": f"tile-{x}-{z}", "x": x, "z": z, "type": "grass", "cropsJSON": "[]"})
+            
+            # Anel Sul
+            for x in range(new_min_x, new_max_x + 1, 2):
+                for z in range(max_z + 2, new_max_z + 1, 2): # Da antiga borda inferior até à nova
+                    new_tiles_to_create.append({"id": f"tile-{x}-{z}", "x": x, "z": z, "type": "grass", "cropsJSON": "[]"})
+
+            # Anel Oeste
+            for x in range(new_min_x, min_x, 2):
+                for z in range(min_z, max_z + 1, 2): # Da nova lateral esquerda até à antiga lateral esquerda (excluindo os cantos já cobertos pelo N/S)
+                    new_tiles_to_create.append({"id": f"tile-{x}-{z}", "x": x, "z": z, "type": "grass", "cropsJSON": "[]"})
+
+            # Anel Este
+            for x in range(max_x + 2, new_max_x + 1, 2):
+                for z in range(min_z, max_z + 1, 2): # Da antiga lateral direita até à nova lateral direita (excluindo cantos)
+                    new_tiles_to_create.append({"id": f"tile-{x}-{z}", "x": x, "z": z, "type": "grass", "cropsJSON": "[]"})
+
+            # Injeta a nova terra no Neo4j de forma bruta (Merge para segurança)
+            if new_tiles_to_create:
+                session.run("""
+                UNWIND $tiles AS t
+                MERGE (tile:Tile {id: t.id})
+                ON CREATE SET tile.gridX = t.x, tile.gridZ = t.z, tile.type = t.type, tile.cropsJSON = t.cropsJSON
+                """, tiles=new_tiles_to_create)
+
+            # Atualiza o estado da memória ativamente neste tick para que o front-end 
+            # já leia a expansão na próxima passagem do "Olho de Deus"
+            survival_brain.world_bounds = {
+                "minX": new_min_x, "maxX": new_max_x, 
+                "minZ": new_min_z, "maxZ": new_max_z
+            }
+
+            # =================================================================
+            # O TOQUE FINAL: INJEÇÃO DE NATUREZA VIRGEM NAS NOVAS TERRAS
+            # Quando a terra expande, não pode vir apenas relva, tem de vir árvores!
+            # E PEDRAS! Se o material basal faltar, a economia estilhaça.
+            # =================================================================
+            new_nature_entities = []
+            
+            for new_tile in new_tiles_to_create:
+                rand_val = random.random()
+                if rand_val < 0.05: # 5% de chance para árvore
+                    new_tree = {
+                        "id": str(uuid.uuid4()), "type": "tree", "posX": new_tile['x'], "posY": -0.5, "posZ": new_tile['z'],
+                        "health": 100.0, "hunger": 0.0, "name": "Árvore Ancestral", "inventoryJSON": "{}", "memoryJSON": "{}", "state": "IDLE"
+                    }
+                    new_nature_entities.append(new_tree)
+                elif rand_val < 0.07: # +2% de chance para afloramentos rochosos nas novas terras (garantindo matéria prima aos ferreiros)
+                    new_stone = {
+                        "id": str(uuid.uuid4()), "type": "stone", "posX": new_tile['x'], "posY": -0.5, "posZ": new_tile['z'],
+                        "health": 100.0, "hunger": 0.0, "name": "Pedra Virgem", "inventoryJSON": "{}", "memoryJSON": "{}", "state": "IDLE"
+                    }
+                    new_nature_entities.append(new_stone)
+                    
+            if new_nature_entities:
+                session.run("""
+                UNWIND $entities AS ent
+                CREATE (e:Entity {
+                    id: ent.id, type: ent.type, posX: ent.posX, posY: ent.posY, posZ: ent.posZ,
+                    health: coalesce(ent.health, 100.0), hunger: coalesce(ent.hunger, 0.0), name: ent.name,
+                    inventoryJSON: coalesce(ent.inventoryJSON, '{}'), memoryJSON: coalesce(ent.memoryJSON, '{}'), state: coalesce(ent.state, 'IDLE')
+                })
+                """, entities=new_nature_entities)
+                
     if dead_agents:
         session.run("MATCH (e:Entity) WHERE e.id IN $ids DETACH DELETE e", ids=dead_agents)
         

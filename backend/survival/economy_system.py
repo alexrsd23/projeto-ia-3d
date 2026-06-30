@@ -56,9 +56,11 @@ class EconomySystem:
         item_qty = agent_inv.get(item_type, 0)
         scarcity_multiplier = 1.5 if item_qty == 0 else (0.8 if item_qty > 10 else 1.0)
             
-        # Desespero biológico (0 = desespero máximo)
+       # Desespero biológico (0 = esfomeado, 100 = saciado)
         biological_need = (100.0 - current_hunger) / 100.0 
-        desperation_multiplier = 1.0 + (1.0 - biological_need)
+        
+        # CORREÇÃO: O multiplicador cresce quanto MAIOR for a necessidade biológica
+        desperation_multiplier = 1.0 + biological_need
 
         final_value = inflated_base * scarcity_multiplier * desperation_multiplier * (1.0 + greed_margin)
         return round(max(0.1, final_value), 2)

@@ -57,10 +57,9 @@ export default function DamagedFence({ id, position, isSelected, onClick, onMove
       e.stopPropagation();
       const intersectPoint = new THREE.Vector3();
       if (e.ray.intersectPlane(dragPlane, intersectPoint)) {
-        // Limita para que a cerca não seja arrastada para fora do mundo
-        const clampedX = Math.max(-24, Math.min(24, intersectPoint.x));
-        const clampedZ = Math.max(-24, Math.min(24, intersectPoint.z));
-        meshRef.current.position.set(clampedX, position[1], clampedZ);
+        // === BARREIRAS INVISÍVEIS REMOVIDAS ===
+        // Agora a cerca pode ser arrastada livremente para as novas áreas de expansão
+        meshRef.current.position.set(intersectPoint.x, position[1], intersectPoint.z);
       }
     }
   };

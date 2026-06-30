@@ -93,15 +93,50 @@ class BiologySystem:
             "hp": round(new_health, 1)
         }
         
-    def mix_dna(self, parent_a: dict, parent_b: dict) -> dict:
-        # Mendel 2.0: Mistura a genética de dois agentes para criar um filho com traços únicos e mutações.
+    # === SUBSTITUA A FUNÇÃO mix_dna INTEIRA POR ESTA VERSÃO ===
+    def mix_dna(self, parent_a: dict, parent_b: dict, current_population: list) -> dict:
         import random
         
-        # 1. Genética Biológica (Sexo e Profissão)
+        # 1. Genética Biológica (Sexo)
         child_sex = random.choice(['M', 'F'])
-        child_profession = parent_a.get('profession', 'Explorador')
         
-        # 2. Mistura de Cores (Aquarela Genética)
+        # =================================================================
+        # 2. A SUGESTÃO DE EQUILÍBRIO: SPAWN DIRIGIDO (Profissão)
+        # O algoritmo verifica a profissão mais carente no sistema para manter o equilíbrio
+        # =================================================================
+        census = {'farmer': 0, 'woodcutter': 0, 'builder': 0, 'blacksmith': 0}
+        
+        # A) Conta a população atual
+        for agent in current_population:
+            a_type = agent.get('type')
+            if a_type in census:
+                census[a_type] += 1
+                
+        # B) Determina o valor mínimo absoluto atual
+        min_count = min(census.values())
+        
+        # C) Filtra QUAIS profissões têm esse valor mínimo (pode ser um empate de várias)
+        rarest_professions = [prof for prof, count in census.items() if count == min_count]
+        
+        # D) Critérios de Desempate (Prioridade à Hereditariedade)
+        parent_types = [parent_a.get('type'), parent_b.get('type')]
+        
+        chosen_type = None
+        # Se uma das profissões mais raras for a mesma de um dos pais, herda-a!
+        for prof in rarest_professions:
+            if prof in parent_types:
+                chosen_type = prof
+                break
+                
+        # E) Se os pais não ajudam no desempate, escolhe aleatoriamente entre as profissões mais em falta
+        if not chosen_type:
+            chosen_type = random.choice(rarest_professions)
+            
+        # Mapeia a string técnica para a string de visualização Front-end
+        prof_names = {'farmer': 'Fazendeiro', 'woodcutter': 'Lenhador', 'builder': 'Construtor', 'blacksmith': 'Ferreiro'}
+        child_profession = prof_names.get(chosen_type, 'Explorador')
+        
+        # 3. Mistura de Cores (Aquarela Genética)
         def hex_to_rgb(hex_color):
             hex_color = hex_color.lstrip('#')
             if len(hex_color) != 6: return (128, 128, 128)
@@ -113,13 +148,10 @@ class BiologySystem:
         color_a = hex_to_rgb(parent_a.get('color', '#808080'))
         color_b = hex_to_rgb(parent_b.get('color', '#808080'))
         
-        child_rgb = [
-            (color_a[i] + color_b[i]) / 2 + random.randint(-15, 15) 
-            for i in range(3)
-        ]
+        child_rgb = [(color_a[i] + color_b[i]) / 2 + random.randint(-15, 15) for i in range(3)]
         child_color = rgb_to_hex(child_rgb)
         
-        # 3. Herança Comportamental (Natureza + Mutação/Nurture)
+        # 4. Herança Comportamental (Natureza + Mutação)
         def mix_trait(trait_name):
             val_a = float(parent_a.get(trait_name, 50.0))
             val_b = float(parent_b.get(trait_name, 50.0))
@@ -131,13 +163,13 @@ class BiologySystem:
         child_lie = mix_trait('lieLevel')
         
         return {
+            "type": chosen_type,             # <--- NOVO: Devolve o TIPO técnico de código
             "sex": child_sex,
-            "profession": child_profession,
+            "profession": child_profession,  # <--- Mantém a string bonita para o Front-end
             "color": child_color,
             "trustLevel": round(child_trust, 1),
             "lieLevel": round(child_lie, 1),
             "married": False,
-            # === CORREÇÃO: O DNA AGORA INCLUI A MATRIZ DE FILIAÇÃO ===
             "parent_a_id": parent_a['id'],
             "parent_b_id": parent_b['id']
         }

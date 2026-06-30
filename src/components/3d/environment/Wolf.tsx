@@ -84,10 +84,8 @@ export default function Wolf({ id, position, isSelected, onClick, onMove, setIsD
       e.stopPropagation();
       const intersectPoint = new THREE.Vector3();
       if (e.ray.intersectPlane(dragPlane, intersectPoint)) {
-        // Limita para que o lobo não seja arrastado para fora do mundo
-        const clampedX = Math.max(-24, Math.min(24, intersectPoint.x));
-        const clampedZ = Math.max(-24, Math.min(24, intersectPoint.z));
-        groupRef.current.position.set(clampedX, position[1], clampedZ);
+        // === BARREIRAS INVISÍVEIS REMOVIDAS ===
+        groupRef.current.position.set(intersectPoint.x, position[1], intersectPoint.z);
       }
     }
   };
